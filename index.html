@@ -581,9 +581,11 @@ setTimeout(() => {
 function oddify(n) { return (n % 2 === 0) ? n + 1 : n; }
 const ADAPTIVE_C = 6;
 const SQ_MIN_MARKER_AREA = 10;
-const SQ_DOT_AREA_RATIO_MIN = 0.015;
-const SQ_DOT_AREA_RATIO_MAX = 0.15;
-const SQ_CONCENTRIC_TOL = 0.5;
+// Квадратна крапка має площу ≈ (1/5)² відносно зовнішнього: ~0.04.
+// Розширюємо діапазон для реальних умов (розмазування, перспектива).
+const SQ_DOT_AREA_RATIO_MIN = 0.005;
+const SQ_DOT_AREA_RATIO_MAX = 0.40;
+const SQ_CONCENTRIC_TOL = 0.7;
 
 function detectSquareFinderCandidates(imgData, W, H) {
   let src, gray, bin, hierarchy, contours;
@@ -669,17 +671,31 @@ function findSquareCorners(candidates) {
     cv.convexHull(pts2f, hull, false, true);
     if (hull.rows < 4) return { ok: false, reason: `опукла оболонка < 4 точок (${hull.rows})` };
 
+    // Адаптивний пошук epsilon: збільшуємо поступово поки не отримаємо рівно 4 кути.
     approx = new cv.Mat();
     const peri = cv.arcLength(hull, true);
-    cv.approxPolyDP(hull, approx, 0.03 * peri, true);
-    if (approx.rows !== 4) {
-      return { ok: false, reason: `не звелося до 4 кутів (отримано ${approx.rows})` };
+    let resultCorners = null;
+    for (let epsFactor = 0.02; epsFactor <= 0.15; epsFactor += 0.01) {
+      approx.delete && approx.delete();
+      approx = new cv.Mat();
+      cv.approxPolyDP(hull, approx, epsFactor * peri, true);
+      if (approx.rows === 4) {
+        const c = [];
+        for (let i = 0; i < 4; i++) c.push({ x: approx.data32S[i * 2], y: approx.data32S[i * 2 + 1] });
+        resultCorners = c;
+        break;
+      }
+    }
+    // Запасний варіант: якщо рівно 4 кандидати — використовуємо їх безпосередньо.
+    if (!resultCorners) {
+      if (candidates.length === 4) {
+        resultCorners = candidates.map(c => ({ x: Math.round(c.x), y: Math.round(c.y) }));
+      } else {
+        return { ok: false, reason: `не звелося до 4 кутів (Hull=${hull.rows}, кандидатів=${candidates.length})` };
+      }
     }
 
-    const corners = [];
-    for (let i = 0; i < 4; i++) {
-      corners.push({ x: approx.data32S[i * 2], y: approx.data32S[i * 2 + 1] });
-    }
+    const corners = resultCorners;
     const cx = corners.reduce((s, p) => s + p.x, 0) / 4;
     const cy = corners.reduce((s, p) => s + p.y, 0) / 4;
     corners.sort((a, b) => Math.atan2(a.y - cy, a.x - cx) - Math.atan2(b.y - cy, b.x - cx));
@@ -691,7 +707,7 @@ function findSquareCorners(candidates) {
   } finally {
     if (pts2f) pts2f.delete();
     if (hull) hull.delete();
-    if (approx) approx.delete();
+    if (approx && approx.delete) approx.delete();
   }
 }
 
