@@ -1462,6 +1462,20 @@ function scanFrame() {
   const det = detectAndDecode(imgData, size, size, hiImgData, cropSize, cropSize);
   frameCounter++;
 
+  // Оскільки detectAndDecode працює з розтягнутим loCanvas (розміром size x size), 
+  // повернуті координати відносні до цього розтягнутого простору.
+  // Щоб намалювати їх на реальному екрані (overlayCanvas), ми маємо
+  // звузити їх назад до розміру та позиції прицілу на екрані.
+  const loCropSize = size * crosshairFraction;
+  const loCropOffset = (size - loCropSize) / 2;
+  const remap = (p) => ({
+    x: loCropOffset + (p.x / size) * loCropSize,
+    y: loCropOffset + (p.y / size) * loCropSize,
+    size: p.size ? (p.size / size) * loCropSize : 0
+  });
+  if (det.candidates) det.candidates = det.candidates.map(remap);
+  if (det.pts) det.pts = det.pts.map(remap);
+
   if (!det.ok) {
     recentCentroids = []; recentTexts = [];
     latestDet = det; latestStatusText = `Шукаю якорі... (${det.reason})`;
