@@ -283,23 +283,11 @@ function isCutout(r, c) {
 const SIDE_NAMES = ['top', 'right', 'bottom', 'left'];
 function buildSideCoords() {
   const top = [], right = [], bottom = [], left = [];
-  // top: x from left to right, y from top to bottom
-  for (let c = CUTOUT_START; c < CUTOUT_START + CUTOUT_LEN; c++) 
-    for (let r = 0; r < BEACON_SIZE; r++) top.push({ r, c });
-
-  // right: x from top to bottom, y from right to left
-  for (let r = CUTOUT_START; r < CUTOUT_START + CUTOUT_LEN; r++) 
-    for (let c = GRID_SIZE - 1; c >= GRID_SIZE - BEACON_SIZE; c--) right.push({ r, c });
-
-  // bottom: x from right to left, y from bottom to top
-  for (let c = CUTOUT_START + CUTOUT_LEN - 1; c >= CUTOUT_START; c--) 
-    for (let r = GRID_SIZE - 1; r >= GRID_SIZE - BEACON_SIZE; r--) bottom.push({ r, c });
-
-  // left: x from bottom to top, y from left to right
-  for (let r = CUTOUT_START + CUTOUT_LEN - 1; r >= CUTOUT_START; r--) 
-    for (let c = 0; c < BEACON_SIZE; c++) left.push({ r, c });
-    
-  return [top, right, bottom, left]; 
+  for (let c = CUTOUT_START; c < CUTOUT_START + CUTOUT_LEN; c++) for (let r = 0; r < BEACON_SIZE; r++) top.push({ r, c });
+  for (let r = CUTOUT_START; r < CUTOUT_START + CUTOUT_LEN; r++) for (let c = GRID_SIZE - BEACON_SIZE; c < GRID_SIZE; c++) right.push({ r, c });
+  for (let c = CUTOUT_START; c < CUTOUT_START + CUTOUT_LEN; c++) for (let r = GRID_SIZE - BEACON_SIZE; r < GRID_SIZE; r++) bottom.push({ r, c });
+  for (let r = CUTOUT_START; r < CUTOUT_START + CUTOUT_LEN; r++) for (let c = 0; c < BEACON_SIZE; c++) left.push({ r, c });
+  return [top, right, bottom, left]; // по 55 клітин кожна
 }
 const SIDE_CELL_COORDS = buildSideCoords();
 
@@ -682,18 +670,18 @@ downloadSvgBtn.addEventListener('click', () => {
     fullBySide[targetSide] = currentSections[s].concat([0]); 
   }
 
-  let svgBeacons = `  <g id="Beacons" fill="${anchorsColor.value}" shape-rendering="crispEdges">\n`;
+  let svgBeacons = `  <g id="Beacons" fill="${anchorsColor.value}">\n`;
   for (let r = 0; r < GRID_SIZE; r++) {
     for (let c = 0; c < GRID_SIZE; c++) {
       if (isBeaconPixel(r, c)) {
         const { x, y } = cellTopLeftPx(r, c);
-        svgBeacons += `    <rect x="${x}" y="${y}" width="${CELL}" height="${CELL}" />\n`;
+        svgBeacons += `    <rect x="${x + 1}" y="${y + 1}" width="${CELL - 2}" height="${CELL - 2}" />\n`;
       }
     }
   }
   svgBeacons += `  </g>\n`;
 
-  let svgData = `  <g id="DataBits" fill="${bitsColor.value}" shape-rendering="crispEdges">\n`;
+  let svgData = `  <g id="DataBits" fill="${bitsColor.value}">\n`;
   for (let r = 0; r < GRID_SIZE; r++) {
     for (let c = 0; c < GRID_SIZE; c++) {
       if (isCutout(r, c)) continue;
@@ -702,7 +690,7 @@ downloadSvgBtn.addEventListener('click', () => {
       const info = SIDE_INDEX_GRID[r][c];
       if (info && fullBySide[info.side][info.idx] === 1) {
         const { x, y } = cellTopLeftPx(r, c);
-        svgData += `    <rect x="${x}" y="${y}" width="${CELL}" height="${CELL}" />\n`;
+        svgData += `    <rect x="${x + 1}" y="${y + 1}" width="${CELL - 2}" height="${CELL - 2}" />\n`;
       }
     }
   }
