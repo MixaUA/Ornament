@@ -583,9 +583,9 @@ const ADAPTIVE_C = 6;
 // Параметри детекції маяка (квадрат 5×5, рамка + порожній проміжок + центральна крапка).
 // Взяті з референсу Cam Disc Scanner_10 і підігнані під квадратну (не кругову) форму.
 const SQ_MIN_MARKER_AREA = 6;
-// Відносна площа крапки до зовнішнього контуру: ~0.06–0.5 (ширший діапазон для реальних умов).
-const SQ_DOT_AREA_RATIO_MIN = 0.06;
-const SQ_DOT_AREA_RATIO_MAX = 0.5;
+// Відносна площа крапки до зовнішнього контуру: ідеал 1/25 = 0.04.
+const SQ_DOT_AREA_RATIO_MIN = 0.015;
+const SQ_DOT_AREA_RATIO_MAX = 0.20;
 // Допуск зміщення центрів крапки і рамки відносно "радіуса" зовнішнього квадрата.
 const SQ_CONCENTRIC_TOL = 0.4;
 // Максимальний розкид розмірів маяків: (max-min)/median — відсіює випадковий шум.
@@ -600,7 +600,11 @@ function detectSquareFinderCandidates(imgData, W, H) {
     gray = new cv.Mat();
     cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
     bin = new cv.Mat();
-    const blockSize = Math.max(11, Math.min(51, oddify(Math.round(Math.min(W, H) / 16))));
+    // Збільшуємо розмір блоку для adaptiveThreshold: якщо камера близько, чорна
+    // рамка маяка стає дуже товстою. Малий блок (напр. 21) призведе до того, що
+    // середина чорної рамки стане білою. Блок має бути більшим за максимальну
+    // товщину чорної лінії.
+    const blockSize = Math.max(21, Math.min(111, oddify(Math.round(Math.min(W, H) / 8))));
     cv.adaptiveThreshold(gray, bin, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV, blockSize, ADAPTIVE_C);
 
     // КЛЮЧОВИЙ КРОК: drawCell малює клітини 18×18 з 1px відступом — між
@@ -818,7 +822,7 @@ function detectAndDecode(imgData, W, H, hiImgData, hiW, hiH) {
     const cs = findSquareCorners(candidates);
     if (!cs.ok) {
       trackingMiss();
-      return { ok: false, reason: `${cs.reason} (кандидатів після dilation: ${candidates.length})`, mode: 'cold-fail' };
+      return { ok: false, reason: `${cs.reason} (кандидатів після dilation: ${candidates.length})`, mode: 'cold-fail', candidates };
     }
     pts = cs.points; scalePx = cs.scalePx; mode = 'cold';
   }
@@ -834,7 +838,7 @@ function detectAndDecode(imgData, W, H, hiImgData, hiW, hiH) {
 
   updateCornerState(pts, scalePx);
 
-  return { ok: true, mode, pts, scalePx, sections, startOk, agreement, lang };
+  return { ok: true, mode, pts, scalePx, sections, startOk, agreement, lang, candidates };
 }
 
 const CORNER_EMA_ALPHA = 0.35;
@@ -894,7 +898,7 @@ function drawGuide(W, H) {
   const g = gc.getContext('2d');
   g.clearRect(0, 0, W, H);
   const cx = W / 2, cy = H / 2;
-  const half = Math.min(W, H) * 0.42;
+  const half = Math.min(W, H) * 0.38;
 
   g.fillStyle = 'rgba(0,0,0,0.6)';
   g.fillRect(0, 0, W, H);
@@ -979,6 +983,14 @@ function drawLiveOverlay(W, H, det, statusText) {
   oc.width = W; oc.height = H;
   const octx = oc.getContext('2d');
   octx.clearRect(0, 0, W, H);
+  
+  if (det && det.candidates) {
+    octx.fillStyle = 'rgba(255,255,0,0.8)';
+    for (const c of det.candidates) {
+      octx.beginPath(); octx.arc(c.x, c.y, 4, 0, Math.PI*2); octx.fill();
+    }
+  }
+
   if (det && det.pts) {
     const pts = det.pts;
     octx.strokeStyle = 'rgba(120,220,120,0.9)';
