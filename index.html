@@ -683,18 +683,18 @@ downloadSvgBtn.addEventListener('click', () => {
     fullBySide[targetSide] = currentSections[s].concat([0]); 
   }
 
-  let svgBeacons = `  <g id="Beacons" fill="${anchorsColor.value}">\n`;
+  let svgBeacons = `  <g id="Beacons" fill="${anchorsColor.value}" shape-rendering="crispEdges">\n`;
   for (let r = 0; r < GRID_SIZE; r++) {
     for (let c = 0; c < GRID_SIZE; c++) {
-      if (isBeaconPixel(r, c)) {
+      if (isBeaconArea(r, c) && isBeaconPixel(r, c)) {
         const { x, y } = cellTopLeftPx(r, c);
-        svgBeacons += `    <rect x="${x + 1}" y="${y + 1}" width="${CELL - 2}" height="${CELL - 2}" />\n`;
+        svgBeacons += `    <rect x="${x}" y="${y}" width="${CELL}" height="${CELL}" />\n`;
       }
     }
   }
   svgBeacons += `  </g>\n`;
 
-  let svgData = `  <g id="DataBits" fill="${bitsColor.value}">\n`;
+  let svgData = `  <g id="DataBits" fill="${bitsColor.value}" shape-rendering="crispEdges">\n`;
   for (let r = 0; r < GRID_SIZE; r++) {
     for (let c = 0; c < GRID_SIZE; c++) {
       if (isCutout(r, c)) continue;
@@ -703,7 +703,7 @@ downloadSvgBtn.addEventListener('click', () => {
       const info = SIDE_INDEX_GRID[r][c];
       if (info && fullBySide[info.side][info.idx] === 1) {
         const { x, y } = cellTopLeftPx(r, c);
-        svgData += `    <rect x="${x + 1}" y="${y + 1}" width="${CELL - 2}" height="${CELL - 2}" />\n`;
+        svgData += `    <rect x="${x}" y="${y}" width="${CELL}" height="${CELL}" />\n`;
       }
     }
   }
