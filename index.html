@@ -592,7 +592,7 @@ const SQ_CONCENTRIC_TOL = 0.4;
 const SQ_SIZE_SPREAD_MAX = 0.6;
 
 function detectSquareFinderCandidates(imgData, W, H) {
-  let src, gray, bin, hierarchy, contours;
+  let src, gray, bin, dilated, kernel, hierarchy, contours;
   let contourMats = [];
   const candidates = [];
   try {
@@ -603,9 +603,18 @@ function detectSquareFinderCandidates(imgData, W, H) {
     const blockSize = Math.max(11, Math.min(51, oddify(Math.round(Math.min(W, H) / 16))));
     cv.adaptiveThreshold(gray, bin, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV, blockSize, ADAPTIVE_C);
 
+    // КЛЮЧОВИЙ КРОК: drawCell малює клітини 18×18 з 1px відступом — між
+    // сусідніми клітинами рамки маяка залишається 2px зазор, через що
+    // OpenCV бачить 16 окремих квадратиків замість одного кільця і не
+    // знаходить вкладену структуру рамка→дірка→крапка. Dilation 3×3
+    // розширює кожен білий піксель на 1px і зашиває ці 2px зазори.
+    kernel = cv.Mat.ones(3, 3, cv.CV_8U);
+    dilated = new cv.Mat();
+    cv.dilate(bin, dilated, kernel);
+
     contours = new cv.MatVector();
     hierarchy = new cv.Mat();
-    cv.findContours(bin, contours, hierarchy, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE);
+    cv.findContours(dilated, contours, hierarchy, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE);
 
     const n = contours.size();
     for (let i = 0; i < n; i++) contourMats.push(contours.get(i));
@@ -645,6 +654,8 @@ function detectSquareFinderCandidates(imgData, W, H) {
     if (src) src.delete();
     if (gray) gray.delete();
     if (bin) bin.delete();
+    if (dilated) dilated.delete();
+    if (kernel) kernel.delete();
     if (hierarchy) hierarchy.delete();
     if (contours) contours.delete();
   }
@@ -807,7 +818,7 @@ function detectAndDecode(imgData, W, H, hiImgData, hiW, hiH) {
     const cs = findSquareCorners(candidates);
     if (!cs.ok) {
       trackingMiss();
-      return { ok: false, reason: `${cs.reason} [маяків у кадрі: ${candidates.length}]`, mode: 'cold-fail' };
+      return { ok: false, reason: `${cs.reason} (кандидатів після dilation: ${candidates.length})`, mode: 'cold-fail' };
     }
     pts = cs.points; scalePx = cs.scalePx; mode = 'cold';
   }
