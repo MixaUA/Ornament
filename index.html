@@ -427,22 +427,6 @@ function drawCell(ctx, r, c, color) {
   ctx.fillRect(x + 1, y + 1, CELL - 2, CELL - 2);
 }
 
-// Малює вишитий хрестик (5 міні-квадратиків) для даних.
-// Ця форма займає достатньо площі (16.5 x 16.5 пікселів у сітці 20x20),
-// щоб надійно зчитуватися алгоритмом, але виглядає як національний орнамент.
-function drawCross(ctx, r, c, color) {
-  const { x, y } = cellTopLeftPx(r, c);
-  ctx.fillStyle = color;
-  const s = 5.5; 
-  const cx = x + CELL / 2;
-  const cy = y + CELL / 2;
-  ctx.fillRect(cx - s/2, cy - s/2, s, s); // центр
-  ctx.fillRect(cx - s*1.5, cy - s*1.5, s, s); // верх-ліво
-  ctx.fillRect(cx + s*0.5, cy - s*1.5, s, s); // верх-право
-  ctx.fillRect(cx - s*1.5, cy + s*0.5, s, s); // низ-ліво
-  ctx.fillRect(cx + s*0.5, cy + s*0.5, s, s); // низ-право
-}
-
 bitsColor.addEventListener('input', refresh);
 anchorsColor.addEventListener('input', refresh);
 langToggleBtn.addEventListener('click', () => {
@@ -492,7 +476,7 @@ function render(ctx, sections, photoImg) {
       }
       const info = SIDE_INDEX_GRID[r][c];
       if (info && fullBySide[info.side][info.idx] === 1) {
-        drawCross(ctx, r, c, bitsColor.value);
+        drawCell(ctx, r, c, bitsColor.value);
       }
     }
   }
