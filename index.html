@@ -191,6 +191,12 @@ textarea { width: 100%; height: 180px; font-family: monospace; font-size: 11px; 
     </div>
   </div>
 
+  <div class="input-group" style="display: flex; align-items: center; gap: 8px;">
+    <label for="bitScaleSlider" style="min-width: 110px; margin: 0;">Розмір бітів</label>
+    <input type="range" id="bitScaleSlider" min="60" max="100" value="100" style="flex: 1;" />
+    <span class="counter" id="bitScaleLabel" style="min-width: 42px; text-align: right;">100%</span>
+  </div>
+
   <div class="error" id="errorBox"></div>
   <div class="capacity-note" id="capacityNote"></div>
 
@@ -474,15 +480,26 @@ const bitsColor = document.getElementById('bitsColor');
 const anchorsColor = document.getElementById('anchorsColor');
 const clearPhotoBtn = document.getElementById('clearPhotoBtn');
 const langToggleBtn = document.getElementById('langToggleBtn');
+const bitScaleSlider = document.getElementById('bitScaleSlider');
+const bitScaleLabel = document.getElementById('bitScaleLabel');
+
+let bitScaleValue = 1.0;
 
 function drawCell(ctx, r, c, color) {
   const { x, y } = cellTopLeftPx(r, c);
   ctx.fillStyle = color;
-  ctx.fillRect(x + 1, y + 1, CELL - 2, CELL - 2);
+  const s = CELL * bitScaleValue;
+  const offset = (CELL - s) / 2;
+  ctx.fillRect(x + offset, y + offset, s, s);
 }
 
 bitsColor.addEventListener('input', refresh);
 anchorsColor.addEventListener('input', refresh);
+bitScaleSlider.addEventListener('input', () => {
+  bitScaleValue = parseInt(bitScaleSlider.value, 10) / 100;
+  bitScaleLabel.textContent = bitScaleSlider.value + '%';
+  refresh();
+});
 langToggleBtn.addEventListener('click', () => {
   currentLang = currentLang === 'en' ? 'uk' : 'en';
   renderAlphabetBlocks();
@@ -683,12 +700,15 @@ downloadSvgBtn.addEventListener('click', () => {
     fullBySide[targetSide] = currentSections[s].concat([0]); 
   }
 
+  const s = CELL * bitScaleValue;
+  const offset = (CELL - s) / 2;
+
   let svgBeacons = `  <g id="Beacons" fill="${anchorsColor.value}" shape-rendering="crispEdges">\n`;
   for (let r = 0; r < GRID_SIZE; r++) {
     for (let c = 0; c < GRID_SIZE; c++) {
       if (isBeaconArea(r, c) && isBeaconPixel(r, c)) {
         const { x, y } = cellTopLeftPx(r, c);
-        svgBeacons += `    <rect x="${x}" y="${y}" width="${CELL}" height="${CELL}" />\n`;
+        svgBeacons += `    <rect x="${x + offset}" y="${y + offset}" width="${s}" height="${s}" />\n`;
       }
     }
   }
@@ -703,7 +723,7 @@ downloadSvgBtn.addEventListener('click', () => {
       const info = SIDE_INDEX_GRID[r][c];
       if (info && fullBySide[info.side][info.idx] === 1) {
         const { x, y } = cellTopLeftPx(r, c);
-        svgData += `    <rect x="${x}" y="${y}" width="${CELL}" height="${CELL}" />\n`;
+        svgData += `    <rect x="${x + offset}" y="${y + offset}" width="${s}" height="${s}" />\n`;
       }
     }
   }
