@@ -1105,8 +1105,11 @@ let signalLevel = 0;
 
 function drawGuide(W, H) {
   const gc = document.getElementById('guideCanvas');
-  gc.width = W; gc.height = H;
+  const dpr = window.devicePixelRatio || 1;
+  gc.width = W * dpr;
+  gc.height = H * dpr;
   const g = gc.getContext('2d');
+  g.scale(dpr, dpr);
   g.clearRect(0, 0, W, H);
   const cx = W / 2, cy = H / 2;
   // Вікно прицілу збільшено на 20%: 0.19 * 1.2 = 0.228 ≈ 0.23
@@ -1193,8 +1196,11 @@ function uiLoop() {
   const H = wrapEl.clientHeight || 320;
   
   const oc = document.getElementById('overlayCanvas');
-  oc.width = W; oc.height = H;
+  const dpr = window.devicePixelRatio || 1;
+  oc.width = W * dpr;
+  oc.height = H * dpr;
   const octx = oc.getContext('2d');
+  octx.scale(dpr, dpr);
   octx.clearRect(0, 0, W, H);
   
   const cx = W / 2, cy = H / 2;
@@ -1256,8 +1262,11 @@ function uiLoop() {
 
 function drawDecodedOverlay(W, H, det) {
   const oc = document.getElementById('overlayCanvas');
-  oc.width = W; oc.height = H;
+  const dpr = window.devicePixelRatio || 1;
+  oc.width = W * dpr;
+  oc.height = H * dpr;
   const octx = oc.getContext('2d');
+  octx.scale(dpr, dpr);
   octx.clearRect(0, 0, W, H);
   const pts = det.pts;
 
