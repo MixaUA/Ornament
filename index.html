@@ -128,6 +128,35 @@ canvas#previewCanvas { width: 100%; aspect-ratio: 1 / 1; border-radius: 12px; bo
 textarea { width: 100%; height: 180px; font-family: monospace; font-size: 11px; background: rgba(0,0,0,0.2); color: #fff; border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; padding: 8px; resize: vertical; }
 .btn-row { display: flex; gap: 8px; }
 .btn-row button { flex: 1; }
+
+.toggle-container {
+  --inactive-color: #4a4a54;
+  --active-color: #35c759;
+  position: relative;
+  aspect-ratio: 292 / 142;
+  height: 24px;
+  display: inline-block;
+  vertical-align: middle;
+}
+.toggle-input {
+  appearance: none; margin: 0; position: absolute; z-index: 1;
+  top: 0; left: 0; width: 100%; height: 100%; cursor: pointer;
+}
+.toggle { width: 100%; height: 100%; overflow: visible; display: block; }
+.toggle-background { fill: var(--inactive-color); transition: fill .4s; }
+.toggle-input:checked + .toggle .toggle-background { fill: var(--active-color); }
+.toggle-circle-center { transform-origin: center; transition: transform .6s; }
+.toggle-input:checked + .toggle .toggle-circle-center { transform: translateX(150px); }
+.toggle-circle { transform-origin: center; backface-visibility: hidden; transition: transform .45s; }
+.toggle-circle.left { transform: scale(1); }
+.toggle-input:checked + .toggle .toggle-circle.left { transform: scale(0); }
+.toggle-circle.right { transform: scale(0); }
+.toggle-input:checked + .toggle .toggle-circle.right { transform: scale(1); }
+.toggle-icon { transition: fill .4s; }
+.toggle-icon.on { fill: var(--inactive-color); }
+.toggle-input:checked + .toggle .toggle-icon.on { fill: #fff; }
+.toggle-icon.off { fill: #2c2c35; }
+.toggle-input:checked + .toggle .toggle-icon.off { fill: var(--active-color); }
 </style>
 </head>
 <body>
@@ -191,10 +220,31 @@ textarea { width: 100%; height: 180px; font-family: monospace; font-size: 11px; 
     </div>
   </div>
 
-  <div class="input-group" style="display: flex; align-items: center; gap: 8px;">
-    <label for="bitScaleSlider" style="min-width: 110px; margin: 0;">Розмір бітів</label>
+  <div style="display: flex; align-items: center; gap: 8px; width: 100%; margin-bottom: 12px;">
+    <label for="bitScaleSlider" style="min-width: 85px; margin: 0;">Розмір бітів</label>
     <input type="range" id="bitScaleSlider" min="60" max="100" value="100" style="flex: 1;" />
     <span class="counter" id="bitScaleLabel" style="min-width: 42px; text-align: right;">100%</span>
+  </div>
+
+  <div style="display: flex; align-items: center; justify-content: flex-start; gap: 10px; width: 100%; margin-bottom: 12px;">
+    <div class="toggle-container">
+      <input class="toggle-input" type="checkbox" id="crossStitchCb">
+      <svg class="toggle" viewBox="0 0 292 142" xmlns="http://www.w3.org/2000/svg">
+        <path class="toggle-background" d="M71 142C31.7878 142 0 110.212 0 71C0 31.7878 31.7878 0 71 0C110.212 0 119 30 146 30C173 30 182 0 221 0C260 0 292 31.7878 292 71C292 110.212 260.212 142 221 142C181.788 142 173 112 146 112C119 112 110.212 142 71 142Z" />
+        <rect class="toggle-icon on" x="64" y="39" width="12" height="64" rx="6" />
+        <path class="toggle-icon off" fill-rule="evenodd" d="M221 91C232.046 91 241 82.0457 241 71C241 59.9543 232.046 51 221 51C209.954 51 201 59.9543 201 71C201 82.0457 209.954 91 221 91ZM221 103C238.673 103 253 88.6731 253 71C253 53.3269 238.673 39 221 39C203.327 39 189 53.3269 189 71C189 88.6731 203.327 103 221 103Z" />
+        <g filter="url('#goo1')">
+          <rect class="toggle-circle-center" x="13" y="42" width="116" height="58" rx="29" fill="#fff"/>
+          <rect class="toggle-circle left" x="14" y="14" width="114" height="114" rx="58" fill="#fff" />
+          <rect class="toggle-circle right" x="164" y="14" width="114" height="114" rx="58" fill="#fff" />
+        </g>
+        <filter id="goo1">
+          <feGaussianBlur in="SourceGraphic" result="blur" stdDeviation="10" />
+          <feColorMatrix in="blur" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 18 -7" result="goo1" />
+        </filter>
+      </svg>
+    </div>
+    <label for="crossStitchCb" style="font-size: 14px; margin: 0; cursor: pointer;">Відображати стібки хрестиком (Х)</label>
   </div>
 
   <div class="error" id="errorBox"></div>
@@ -220,8 +270,25 @@ textarea { width: 100%; height: 180px; font-family: monospace; font-size: 11px; 
     </div>
   </div>
   <button id="camToggleBtn" disabled>Завантаження OpenCV...</button>
-  <label style="margin-top: 8px; font-size: 13px; cursor: pointer; color: rgba(255,255,255,0.7); display: flex; align-items: center; justify-content: center; gap: 6px;">
-    <input type="checkbox" id="debugBeaconsCb" /> Показувати маяки (для тесту)
+  <label style="margin-top: 12px; font-size: 13px; cursor: pointer; color: rgba(255,255,255,0.7); display: flex; align-items: center; justify-content: center; gap: 10px;">
+    <div class="toggle-container">
+      <input class="toggle-input" type="checkbox" id="debugBeaconsCb">
+      <svg class="toggle" viewBox="0 0 292 142" xmlns="http://www.w3.org/2000/svg">
+        <path class="toggle-background" d="M71 142C31.7878 142 0 110.212 0 71C0 31.7878 31.7878 0 71 0C110.212 0 119 30 146 30C173 30 182 0 221 0C260 0 292 31.7878 292 71C292 110.212 260.212 142 221 142C181.788 142 173 112 146 112C119 112 110.212 142 71 142Z" />
+        <rect class="toggle-icon on" x="64" y="39" width="12" height="64" rx="6" />
+        <path class="toggle-icon off" fill-rule="evenodd" d="M221 91C232.046 91 241 82.0457 241 71C241 59.9543 232.046 51 221 51C209.954 51 201 59.9543 201 71C201 82.0457 209.954 91 221 91ZM221 103C238.673 103 253 88.6731 253 71C253 53.3269 238.673 39 221 39C203.327 39 189 53.3269 189 71C189 88.6731 203.327 103 221 103Z" />
+        <g filter="url('#goo2')">
+          <rect class="toggle-circle-center" x="13" y="42" width="116" height="58" rx="29" fill="#fff"/>
+          <rect class="toggle-circle left" x="14" y="14" width="114" height="114" rx="58" fill="#fff" />
+          <rect class="toggle-circle right" x="164" y="14" width="114" height="114" rx="58" fill="#fff" />
+        </g>
+        <filter id="goo2">
+          <feGaussianBlur in="SourceGraphic" result="blur" stdDeviation="10" />
+          <feColorMatrix in="blur" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 18 -7" result="goo2" />
+        </filter>
+      </svg>
+    </div>
+    Показувати маяки (для тесту)
   </label>
   <div class="capacity-note" id="camStatus"></div>
   <div class="results" id="camResultsBox"></div>
@@ -411,8 +478,7 @@ function renderAlphabetBlocks() {
   document.getElementById('langLabel').textContent = currentLang === 'en' ? 'латиниця' : 'кирилиця';
   document.getElementById('langToggleBtn').textContent = currentLang === 'en' ? 'ENG' : 'УКР';
 }
-document.getElementById('capacityNote').textContent =
-  `Місткість: ${ACTIVE_BITS_PER_SECTION} активних біт/сторону (+1 резервний) × 3 сторони даних = ${DATA_SYMBOL_SLOTS} символьних слотів → максимум ${MAX_MESSAGE_LEN} символів.`;
+document.getElementById('capacityNote').textContent = '';
 
 function textToSections(message, lang) {
   if (message.length > MAX_MESSAGE_LEN) {
@@ -482,19 +548,34 @@ const clearPhotoBtn = document.getElementById('clearPhotoBtn');
 const langToggleBtn = document.getElementById('langToggleBtn');
 const bitScaleSlider = document.getElementById('bitScaleSlider');
 const bitScaleLabel = document.getElementById('bitScaleLabel');
+const crossStitchCb = document.getElementById('crossStitchCb');
 
 let bitScaleValue = 1.0;
 
 function drawCell(ctx, r, c, color) {
   const { x, y } = cellTopLeftPx(r, c);
-  ctx.fillStyle = color;
   const s = CELL * bitScaleValue;
   const offset = (CELL - s) / 2;
-  ctx.fillRect(x + offset, y + offset, s, s);
+  
+  if (crossStitchCb.checked && !isBeaconPixel(r, c)) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = s * 0.35;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x + offset, y + offset);
+    ctx.lineTo(x + offset + s, y + offset + s);
+    ctx.moveTo(x + offset + s, y + offset);
+    ctx.lineTo(x + offset, y + offset + s);
+    ctx.stroke();
+  } else {
+    ctx.fillStyle = color;
+    ctx.fillRect(x + offset, y + offset, s, s);
+  }
 }
 
 bitsColor.addEventListener('input', refresh);
 anchorsColor.addEventListener('input', refresh);
+crossStitchCb.addEventListener('change', refresh);
 bitScaleSlider.addEventListener('input', () => {
   bitScaleValue = parseInt(bitScaleSlider.value, 10) / 100;
   bitScaleLabel.textContent = bitScaleSlider.value + '%';
@@ -714,7 +795,8 @@ downloadSvgBtn.addEventListener('click', () => {
   }
   svgBeacons += `  </g>\n`;
 
-  let svgData = `  <g id="DataBits" fill="${bitsColor.value}" shape-rendering="crispEdges">\n`;
+  const shapeRendering = crossStitchCb.checked ? 'auto' : 'crispEdges';
+  let svgData = `  <g id="DataBits" fill="${crossStitchCb.checked ? 'none' : bitsColor.value}" stroke="${crossStitchCb.checked ? bitsColor.value : 'none'}" stroke-linecap="round" stroke-width="${crossStitchCb.checked ? s * 0.35 : 0}" shape-rendering="${shapeRendering}">\n`;
   for (let r = 0; r < GRID_SIZE; r++) {
     for (let c = 0; c < GRID_SIZE; c++) {
       if (isCutout(r, c)) continue;
@@ -723,7 +805,12 @@ downloadSvgBtn.addEventListener('click', () => {
       const info = SIDE_INDEX_GRID[r][c];
       if (info && fullBySide[info.side][info.idx] === 1) {
         const { x, y } = cellTopLeftPx(r, c);
-        svgData += `    <rect x="${x + offset}" y="${y + offset}" width="${s}" height="${s}" />\n`;
+        if (crossStitchCb.checked) {
+          svgData += `    <line x1="${x + offset}" y1="${y + offset}" x2="${x + offset + s}" y2="${y + offset + s}" />\n`;
+          svgData += `    <line x1="${x + offset + s}" y1="${y + offset}" x2="${x + offset}" y2="${y + offset + s}" />\n`;
+        } else {
+          svgData += `    <rect x="${x + offset}" y="${y + offset}" width="${s}" height="${s}" />\n`;
+        }
       }
     }
   }
