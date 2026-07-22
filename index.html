@@ -351,14 +351,6 @@ function isQuietRing(r, c) {
 function isCutout(r, c) {
   return r >= CUTOUT_START && r < CUTOUT_START + CUTOUT_LEN && c >= CUTOUT_START && c < CUTOUT_START + CUTOUT_LEN;
 }
-// Центральна крапка маяка [2,2] — єдина частина, яку findContours шукає
-// як вкладений контур. Вона завжди залишається суцільним квадратом.
-function isCenterDot(r, c) {
-  if (!isBeaconArea(r, c)) return false;
-  const localR = r >= GRID_SIZE - BEACON_SIZE ? r - (GRID_SIZE - BEACON_SIZE) : r;
-  const localC = c >= GRID_SIZE - BEACON_SIZE ? c - (GRID_SIZE - BEACON_SIZE) : c;
-  return localR === 2 && localC === 2;
-}
 
 // Порядок сторін фіксований і однаковий і в енкодері, і в декодері.
 const SIDE_NAMES = ['top', 'right', 'bottom', 'left'];
@@ -565,9 +557,7 @@ function drawCell(ctx, r, c, color) {
   const s = CELL * bitScaleValue;
   const offset = (CELL - s) / 2;
   
-  // Центральна крапка маяка завжди суцільний квадрат — алгоритм шукає саме її.
-  // Рамка маяка (решта пікселів) і всі біти даних — хрестики коли увімкнено.
-  if (crossStitchCb.checked && !isCenterDot(r, c)) {
+  if (crossStitchCb.checked && !isBeaconArea(r, c)) {
     ctx.strokeStyle = color;
     const lw = s * 0.35;
     ctx.lineWidth = lw;
@@ -919,10 +909,12 @@ function detectSquareFinderCandidates(imgData, W, H) {
     const blockSize = Math.max(21, Math.min(111, oddify(Math.round(Math.min(W, H) / 8))));
     cv.adaptiveThreshold(gray, bin, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV, blockSize, ADAPTIVE_C);
 
-    // Ядро 7×7: закриває зазори між хрестиками (до ~7px при 100% розмірі бітів)
-    // і між суцільними клітинками (2px). Не зіллє рамку з центральною крапкою
-    // бо між ними ~60px білого простору.
-    kernel = cv.Mat.ones(7, 7, cv.CV_8U);
+    // КЛЮЧОВИЙ КРОК: drawCell малює клітини 18×18 з 1px відступом — між
+    // сусідніми клітинами рамки маяка залишається 2px зазор, через що
+    // OpenCV бачить 16 окремих квадратиків замість одного кільця і не
+    // знаходить вкладену структуру рамка→дірка→крапка. Dilation 3×3
+    // розширює кожен білий піксель на 1px і зашиває ці 2px зазори.
+    kernel = cv.Mat.ones(3, 3, cv.CV_8U);
     dilated = new cv.Mat();
     cv.dilate(bin, dilated, kernel);
 
@@ -1430,51 +1422,27 @@ function scanFrame() {
   const vw = video.videoWidth, vh = video.videoHeight;
   const hiSize = vw && vh ? Math.min(Math.min(vw, vh), 640) : loSize;
 
-  // Кадрування по прицілу: приціл — коло радіусом 23% від ширини wrap.
-  // Беремо лише центральний квадрат зі стороною 46% від hiSize (~295px).
-  // Це зменшує кількість пікселів для OpenCV у ~4.7 рази.
-  const crosshairFraction = 0.46;
-  const cropSize = Math.round(hiSize * crosshairFraction);
-  const cropOffset = Math.round((hiSize - cropSize) / 2);
-
   const hiCanvas = document.createElement('canvas');
-  hiCanvas.width = cropSize; hiCanvas.height = cropSize;
+  hiCanvas.width = hiSize; hiCanvas.height = hiSize;
   const hctx = hiCanvas.getContext('2d', { willReadFrequently: true });
   if (vw && vh) {
     const sSize = Math.min(vw, vh);
     const sx = (vw - sSize) / 2, sy = (vh - sSize) / 2;
-    // Масштабуємо: в source-відео кропова область = sSize * crosshairFraction
-    const srcCropSize = Math.round(sSize * crosshairFraction);
-    const srcCropOffset = Math.round((sSize - srcCropSize) / 2);
-    hctx.drawImage(video, sx + srcCropOffset, sy + srcCropOffset, srcCropSize, srcCropSize, 0, 0, cropSize, cropSize);
+    hctx.drawImage(video, sx, sy, sSize, sSize, 0, 0, hiSize, hiSize);
   } else {
-    hctx.drawImage(video, cropOffset, cropOffset, cropSize, cropSize, 0, 0, cropSize, cropSize);
+    hctx.drawImage(video, 0, 0, hiSize, hiSize);
   }
-  const hiImgData = hctx.getImageData(0, 0, cropSize, cropSize);
+  const hiImgData = hctx.getImageData(0, 0, hiSize, hiSize);
 
   const loCanvas = document.createElement('canvas');
   loCanvas.width = loSize; loCanvas.height = loSize;
   const cctx = loCanvas.getContext('2d', { willReadFrequently: true });
-  cctx.drawImage(hiCanvas, 0, 0, cropSize, cropSize, 0, 0, loSize, loSize);
+  cctx.drawImage(hiCanvas, 0, 0, hiSize, hiSize, 0, 0, loSize, loSize);
   const imgData = cctx.getImageData(0, 0, loSize, loSize);
 
   const size = loSize;
-  const det = detectAndDecode(imgData, size, size, hiImgData, cropSize, cropSize);
+  const det = detectAndDecode(imgData, size, size, hiImgData, hiSize, hiSize);
   frameCounter++;
-
-  // Оскільки detectAndDecode працює з розтягнутим loCanvas (розміром size x size), 
-  // повернуті координати відносні до цього розтягнутого простору.
-  // Щоб намалювати їх на реальному екрані (overlayCanvas), ми маємо
-  // звузити їх назад до розміру та позиції прицілу на екрані.
-  const loCropSize = size * crosshairFraction;
-  const loCropOffset = (size - loCropSize) / 2;
-  const remap = (p) => ({
-    x: loCropOffset + (p.x / size) * loCropSize,
-    y: loCropOffset + (p.y / size) * loCropSize,
-    size: p.size ? (p.size / size) * loCropSize : 0
-  });
-  if (det.candidates) det.candidates = det.candidates.map(remap);
-  if (det.pts) det.pts = det.pts.map(remap);
 
   if (!det.ok) {
     recentCentroids = []; recentTexts = [];
