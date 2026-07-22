@@ -751,24 +751,30 @@ function sampleGridMat(imgData, pts) {
     trans = cv.getPerspectiveTransform(srcPts, dstPts);
     warped = new cv.Mat();
     cv.warpPerspective(gray, warped, trans, new cv.Size(DIAGRAM, DIAGRAM));
-    // Блок для adaptiveThreshold має бути більшим за максимальну товщину
-    // суцільного скупчення чорних клітин. Оскільки кожна клітина має розмір CELL=20,
-    // скупчення 3х3 клітин має товщину 60px. Розмір 21 був замалим і робив "дірки" 
-    // в центрі чорних масивів. Збільшуємо до 91.
-    cv.adaptiveThreshold(warped, thresh, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV, 91, 5);
+    thresh = new cv.Mat();
+    // Оскільки warped - це вирівняний шматок зображення, що містить лише сам код,
+    // локальні перепади світла вже не такі критичні. А от великі скупчення чорних клітин
+    // ламають adaptiveThreshold (він робить "дірки" всередині чорного масиву).
+    // Тому тут надійніше і швидше використовувати глобальний поріг Оцу.
+    cv.threshold(warped, thresh, 0, 255, cv.THRESH_BINARY_INV | cv.THRESH_OTSU);
 
     SIDE_CELL_COORDS.forEach((coords, si) => {
       coords.forEach(({ r, c }, k) => {
         const p = cellCenterPx(r, c);
         const px = Math.round(p.x), py = Math.round(p.y);
         let bit = 0;
+        
+        // Використовуємо прямий доступ до пам'яті (thresh.data) замість
+        // thresh.ucharPtr(), оскільки ucharPtr створює новий об'єкт при кожному
+        // виклику і наглухо вішав браузер у циклі (через це завмирали цятки).
+        const data = thresh.data;
+        const cols = thresh.cols;
+        
         if (px >= 4 && px < DIAGRAM - 4 && py >= 4 && py < DIAGRAM - 4) {
-          // Шукаємо хоча б один білий піксель (дані) у вікні 9х9 навколо центру.
-          // Це компенсує бочкоподібну дисторсію об'єктива зблизька, яка зсуває 
-          // клітини на кілька пікселів, через що точковий замір потрапляв у зазори.
           for (let dy = -4; dy <= 4; dy++) {
             for (let dx = -4; dx <= 4; dx++) {
-              if (thresh.ucharPtr(py + dy, px + dx)[0] > 128) {
+              // Швидкий доступ до пікселя: y * width + x
+              if (data[(py + dy) * cols + (px + dx)] > 128) {
                 bit = 1; break;
               }
             }
