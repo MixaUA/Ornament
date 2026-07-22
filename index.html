@@ -301,6 +301,15 @@ const START_UK_IDX = LETTER_SLOT_COUNT + DIGIT_CHARS.length + SPECIAL_CHARS.leng
 const START_EN_IDX = START_UK_IDX + 1;
 const PAD_IDX = START_EN_IDX + 1;
 
+// Генератор псевдовипадкових бітів (маска) для хаотичності візерунка
+function getMaskBit(sectionIdx, bitIdx) {
+  let n = sectionIdx * 73 + bitIdx * 37 + 11;
+  n = (n ^ (n << 13)) >>> 0;
+  n = (n ^ (n >>> 17)) >>> 0;
+  n = (n ^ (n << 5)) >>> 0;
+  return n & 1;
+}
+
 function glyphTable(lang) {
   return (lang === 'en' ? LATIN_LETTERS : CYRILLIC_LETTERS).concat(NON_LETTER_CODEBOOK);
 }
@@ -378,6 +387,14 @@ function textToSections(message, lang) {
     checksum[i] = sections[0][i] ^ sections[1][i] ^ sections[2][i];
   }
   sections.push(checksum);
+  
+  // Застосовуємо маску до всіх бітів (включаючи чек-суму), щоб візерунок
+  // завжди був хаотичним навіть для коротких слів (де багато нулів або PAD).
+  for (let s = 0; s < SECTIONS; s++) {
+    for (let i = 0; i < ACTIVE_BITS_PER_SECTION; i++) {
+      sections[s][i] ^= getMaskBit(s, i);
+    }
+  }
   return sections;
 }
 
@@ -805,7 +822,10 @@ function reassembleWithRotation(physicalSides) {
   // декодування на випадково знайденому першому збігу.
   const matches = [];
   for (let rot = 0; rot < SECTIONS; rot++) {
-    const sections = [0, 1, 2, 3].map(logicalIdx => physicalSides[(logicalIdx + rot) % SECTIONS]);
+    // Знімаємо хаотичну маску перед читанням бітів
+    const sections = [0, 1, 2, 3].map(logicalIdx => {
+      return physicalSides[(logicalIdx + rot) % SECTIONS].map((b, i) => b ^ getMaskBit(logicalIdx, i));
+    });
     const first6 = sections[0].slice(0, BITS_PER_SYMBOL);
     const idx = parseInt(first6.join(''), 2);
     if (idx === START_UK_IDX) matches.push({ sections, rot, lang: 'uk' });
@@ -814,7 +834,11 @@ function reassembleWithRotation(physicalSides) {
   if (matches.length === 1) {
     return { sections: matches[0].sections, rot: matches[0].rot, startOk: true, lang: matches[0].lang };
   }
-  const sections0 = [0, 1, 2, 3].map(logicalIdx => physicalSides[logicalIdx]);
+  
+  // Якщо старт не знайдено, повертаємо нульовий поворот (також розмаскований) для дебагу
+  const sections0 = [0, 1, 2, 3].map(logicalIdx => {
+    return physicalSides[logicalIdx].map((b, i) => b ^ getMaskBit(logicalIdx, i));
+  });
   return { sections: sections0, rot: 0, startOk: false, lang: 'uk', ambiguous: matches.length > 1 };
 }
 
@@ -919,7 +943,8 @@ function drawGuide(W, H) {
   const g = gc.getContext('2d');
   g.clearRect(0, 0, W, H);
   const cx = W / 2, cy = H / 2;
-  const half = Math.min(W, H) * 0.38;
+  // Зменшуємо вікно прицілу у 2 рази: 0.38 / 2 = 0.19
+  const half = Math.min(W, H) * 0.19;
 
   g.fillStyle = 'rgba(0,0,0,0.6)';
   g.fillRect(0, 0, W, H);
