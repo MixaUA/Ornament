@@ -1,0 +1,1100 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Квадрат-Код — Енкодер + Декодер</title>
+<script>
+window.__preLog = [];
+window.__openCvLoadState = 'pending';
+function earlyLog(msg) {
+  window.__preLog.push(msg);
+  try { console.log('[opencv-boot] ' + msg); } catch (e) {}
+}
+(function () {
+  try {
+    const resolvedUrl = new URL('opencv.js', document.baseURI).href;
+    earlyLog('Спроба завантажити opencv.js за адресою: ' + resolvedUrl);
+  } catch (e) {
+    earlyLog('Не вдалося обчислити абсолютний шлях до opencv.js: ' + e.message);
+  }
+})();
+function onOpenCvScriptError(ev) {
+  window.__openCvLoadState = 'script-error';
+  earlyLog('ПОМИЛКА: тег <script src="opencv.js"> не завантажився (onerror).');
+  if (window.__cvErrorCallback) window.__cvErrorCallback();
+}
+function onOpenCvScriptLoaded() {
+  window.__openCvLoadState = 'script-loaded';
+  earlyLog('Тег <script src="opencv.js"> відпрацював (onload). Перевіряю глобальний cv...');
+  if (typeof cv === 'undefined') {
+    window.__openCvLoadState = 'cv-undefined';
+    earlyLog('ПОМИЛКА: глобальна змінна cv не визначена.');
+    if (window.__cvErrorCallback) window.__cvErrorCallback();
+    return;
+  }
+  if (cv && typeof cv.then === 'function') {
+    earlyLog('cv є Promise (MODULARIZE-збірка) — чекаю резолву WASM runtime...');
+    cv.then(function (resolvedCv) {
+      window.cv = resolvedCv;
+      window.__openCvLoadState = 'ready';
+      earlyLog('cv Promise резолвнувся — WASM runtime готовий.');
+      if (window.__cvReadyCallback) window.__cvReadyCallback();
+    }).catch(function (err) {
+      window.__openCvLoadState = 'promise-rejected';
+      earlyLog('ПОМИЛКА: cv Promise відхилено: ' + (err && err.message ? err.message : String(err)));
+      if (window.__cvErrorCallback) window.__cvErrorCallback();
+    });
+  } else {
+    earlyLog('cv — не Promise (класична збірка) — підключаю onRuntimeInitialized...');
+    cv['onRuntimeInitialized'] = function () {
+      window.__openCvLoadState = 'ready';
+      earlyLog('onRuntimeInitialized спрацював — WASM runtime готовий.');
+      if (window.__cvReadyCallback) window.__cvReadyCallback();
+    };
+  }
+}
+</script>
+<script async src="opencv.js" onload="onOpenCvScriptLoaded();" onerror="onOpenCvScriptError(event);" type="text/javascript"></script>
+<style>
+* { box-sizing: border-box; }
+body {
+  margin: 0; min-height: 100vh; display: flex; flex-direction: column;
+  align-items: center; gap: 20px; background: #0b3d63; font-family: sans-serif;
+  color: #fff; padding: 30px 12px 60px;
+}
+h1 { font-size: 20px; font-weight: 600; margin: 0; text-align: center; text-shadow: 0 2px 4px rgba(0,0,0,0.2); }
+.subtitle { font-size: 12px; color: rgba(255,255,255,0.6); text-align: center; margin-top: -12px; }
+.panel {
+  width: min(460px, 92vw); display: flex; flex-direction: column; gap: 14px;
+  background: rgba(255, 255, 255, 0.04); padding: 22px; border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08); box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+}
+.panel h2 { font-size: 14px; margin: 0; text-transform: uppercase; letter-spacing: 0.05em; color: rgba(255,255,255,0.75); }
+.input-group { display: flex; flex-direction: column; gap: 6px; }
+label { font-size: 13px; font-weight: 500; color: rgba(255,255,255,0.85); }
+input[type="text"] {
+  width: 100%; padding: 12px 14px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2);
+  background: rgba(0,0,0,0.2); color: #fff; font-size: 15px; outline: none;
+  text-transform: uppercase;
+}
+input[type="text"]:focus { border-color: rgba(255,255,255,0.6); }
+input[type="file"] { color: rgba(255,255,255,0.75); font-size: 13px; padding: 4px 0; }
+.counter-row { display: flex; justify-content: space-between; align-items: center; }
+.counter { font-size: 12px; font-family: monospace; color: rgba(255,255,255,0.55); }
+.counter.over { color: #ff8a8a; font-weight: bold; }
+button {
+  padding: 13px; border-radius: 8px; border: none; background: #fff; color: #0b3d63;
+  font-weight: 600; font-size: 14px; cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+button:active { transform: scale(0.98); }
+button:disabled { opacity: 0.4; cursor: default; transform: none; }
+button.secondary { background: rgba(255,255,255,0.12); color: #fff; box-shadow: none; border: 1px solid rgba(255,255,255,0.25); }
+button.lang-toggle { background: rgba(255,255,255,0.18); color: #fff; font-size: 12px; padding: 8px 12px; }
+canvas#previewCanvas { width: 100%; aspect-ratio: 1 / 1; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.2); background: #fff; }
+.error { font-size: 13px; color: #ff8a8a; min-height: 18px; font-weight: 500; }
+.capacity-note { font-size: 12px; color: rgba(255,255,255,0.5); }
+
+.cam-wrap { position: relative; width: 100%; aspect-ratio: 1 / 1; background: #000; border-radius: 12px; overflow: hidden; }
+.cam-placeholder { position: absolute; inset: 0; display:flex; align-items:center; justify-content:center; color: rgba(255,255,255,0.5); font-size: 12px; text-align:center; padding: 20px; }
+.cam-live { position: absolute; inset: 0; display: none; }
+.cam-live.active { display: block; }
+.cam-wrap video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1; }
+.cam-wrap canvas.overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; }
+.cam-wrap canvas.guide { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; }
+.scan-status { position: absolute; bottom: 6px; left: 0; right: 0; text-align: center; font-size: 11px; font-family: monospace; color: #fff; text-shadow: 0 1px 3px #000; z-index: 3; }
+.results { font-family: monospace; font-size: 13px; line-height: 1.7; }
+.final-result { font-size: 17px; text-align: center; padding: 14px; margin-top: 8px; background: rgba(255,255,255,0.08); border-radius: 8px; }
+.final-result .label { font-size: 11px; color: rgba(255,255,255,0.55); text-transform: uppercase; margin-bottom: 4px; }
+textarea { width: 100%; height: 180px; font-family: monospace; font-size: 11px; background: rgba(0,0,0,0.2); color: #fff; border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; padding: 8px; resize: vertical; }
+.btn-row { display: flex; gap: 8px; }
+.btn-row button { flex: 1; }
+</style>
+</head>
+<body>
+
+<h1>Квадрат-Код</h1>
+<div class="subtitle">23×23 сітка · 4 кутові маяки · OpenCV вкладені контури</div>
+
+<div class="panel">
+  <h2>Енкодер</h2>
+  <div class="input-group">
+  <div class="counter-row">
+    <label for="msgInput">Повідомлення (до <span id="maxLenLabel"></span> символів)</label>
+    <div class="counter" id="counter">0 / 0</div>
+  </div>
+  <div style="display:flex; gap:8px; align-items:center;">
+    <input type="text" id="msgInput" placeholder="Я ТЕБЕ КОХАЮ" style="flex:1;" />
+    <button class="lang-toggle" id="langToggleBtn" type="button">УКР</button>
+  </div>
+  <div class="capacity-note">
+    <div style="margin-bottom:4px;">Доступні символи (<span id="langLabel">кирилиця</span>):</div>
+    <div id="alphabetBlocks" style="color: #fff; font-family: monospace; display: flex; flex-direction: column; gap: 4px;">
+      <div id="blockLetters"></div>
+      <div id="blockDigits"></div>
+      <div id="blockSpecial"></div>
+    </div>
+  </div>
+  </div>
+
+  <div class="input-group">
+    <label for="photoInput">Фото в центр (PNG, JPEG)</label>
+    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+      <input type="file" id="photoInput" accept="image/png, image/jpeg" style="flex: 1; min-width: 150px;" />
+      <button class="secondary" id="clearPhotoBtn" style="padding: 4px 8px; font-size: 12px; white-space: nowrap;">Очистити</button>
+    </div>
+  </div>
+
+  <div class="input-group" style="display: flex; flex-direction: row; gap: 10px; flex-wrap: wrap;">
+    <div style="flex: 1; min-width: 120px;">
+      <label for="bitsColor">Колір бітів</label>
+      <input type="color" id="bitsColor" value="#d90429" style="height: 30px; width: 100%;" />
+    </div>
+    <div style="flex: 1; min-width: 120px;">
+      <label for="anchorsColor">Колір маяків</label>
+      <input type="color" id="anchorsColor" value="#000000" style="height: 30px; width: 100%;" />
+    </div>
+  </div>
+
+  <div class="error" id="errorBox"></div>
+  <div class="capacity-note" id="capacityNote"></div>
+
+  <canvas id="previewCanvas" width="540" height="540"></canvas>
+
+  <button id="downloadBtn">Завантажити PNG</button>
+</div>
+
+<div class="panel">
+  <h2>Декодер (камера)</h2>
+  <div class="cam-wrap" id="camWrap">
+    <div class="cam-placeholder" id="camPlaceholder">OpenCV завантажується...</div>
+    <div class="cam-live" id="camLive">
+      <video id="camVideo" autoplay playsinline muted></video>
+      <canvas id="guideCanvas" class="guide"></canvas>
+      <canvas id="overlayCanvas" class="overlay"></canvas>
+      <div class="scan-status" id="scanStatusOverlay"></div>
+    </div>
+  </div>
+  <button id="camToggleBtn" disabled>Завантаження OpenCV...</button>
+  <div class="capacity-note" id="camStatus"></div>
+  <div class="results" id="camResultsBox"></div>
+  <button class="secondary" id="rescanBtn" style="display:none;">Сканувати ще раз</button>
+</div>
+
+<div class="panel">
+  <h2>Лог</h2>
+  <textarea id="logBox" readonly></textarea>
+  <div class="btn-row">
+    <button class="secondary" id="copyLogBtn">Скопіювати лог</button>
+    <button class="secondary" id="clearLogBtn">Очистити лог</button>
+  </div>
+</div>
+
+<script>
+/* ================================================================
+   ГЕОМЕТРІЯ КВАДРАТА — 23×23 сітка, 4 кутові маяки 5×5,
+   "тиха" рамка навколо вирізу 11×11, 4 сторони даних по 55 клітин.
+   Портовано з "Орнамент квадрат_2.html", узгоджено з архітектурою
+   диска (4 фізичні секції: 3 даних + 1 чексум, ротаційний пошук СТАРТу).
+   ================================================================ */
+const GRID_SIZE = 23;
+const CELL = 20;
+const MARGIN_CELLS = 2;               // "тиха зона" з полів навколо коду — для стійкості розпізнавання
+const OFFSET = MARGIN_CELLS * CELL;
+const DIAGRAM = (GRID_SIZE + MARGIN_CELLS * 2) * CELL; // 540
+
+const BEACON_SIZE = 5;                // кутові маяки 5×5
+const CUTOUT_START = 6, CUTOUT_LEN = 11; // виріз під фото 11×11 (клітини 6..16)
+const QUIET_START = 5, QUIET_END = 17;   // рамка навколо вирізу
+
+const SECTIONS = 4;                   // фізичних сторін: верх/право/низ/ліво
+const PHYSICAL_BITS_PER_SIDE = 55;    // 11 × 5 клітин на сторону
+const BG_COLOR = '#ffffff';
+
+function cellTopLeftPx(r, c) { return { x: OFFSET + c * CELL, y: OFFSET + r * CELL }; }
+function cellCenterPx(r, c) { return { x: OFFSET + c * CELL + CELL / 2, y: OFFSET + r * CELL + CELL / 2 }; }
+
+function isBeaconArea(r, c) {
+  if (r < BEACON_SIZE && c < BEACON_SIZE) return true;
+  if (r < BEACON_SIZE && c >= GRID_SIZE - BEACON_SIZE) return true;
+  if (r >= GRID_SIZE - BEACON_SIZE && c < BEACON_SIZE) return true;
+  if (r >= GRID_SIZE - BEACON_SIZE && c >= GRID_SIZE - BEACON_SIZE) return true;
+  return false;
+}
+function isBeaconPixel(r, c) {
+  const localR = r >= GRID_SIZE - BEACON_SIZE ? r - (GRID_SIZE - BEACON_SIZE) : r;
+  const localC = c >= GRID_SIZE - BEACON_SIZE ? c - (GRID_SIZE - BEACON_SIZE) : c;
+  if (localR === 0 || localR === BEACON_SIZE - 1 || localC === 0 || localC === BEACON_SIZE - 1) return true;
+  if (localR === 2 && localC === 2) return true; // центральна крапка
+  return false;
+}
+function isQuietRing(r, c) {
+  if (r >= QUIET_START && r <= QUIET_END && c >= QUIET_START && c <= QUIET_END) {
+    return r === QUIET_START || r === QUIET_END || c === QUIET_START || c === QUIET_END;
+  }
+  return false;
+}
+function isCutout(r, c) {
+  return r >= CUTOUT_START && r < CUTOUT_START + CUTOUT_LEN && c >= CUTOUT_START && c < CUTOUT_START + CUTOUT_LEN;
+}
+
+// Порядок сторін фіксований і однаковий і в енкодері, і в декодері.
+const SIDE_NAMES = ['top', 'right', 'bottom', 'left'];
+function buildSideCoords() {
+  const top = [], right = [], bottom = [], left = [];
+  for (let c = CUTOUT_START; c < CUTOUT_START + CUTOUT_LEN; c++) for (let r = 0; r < BEACON_SIZE; r++) top.push({ r, c });
+  for (let r = CUTOUT_START; r < CUTOUT_START + CUTOUT_LEN; r++) for (let c = GRID_SIZE - BEACON_SIZE; c < GRID_SIZE; c++) right.push({ r, c });
+  for (let c = CUTOUT_START; c < CUTOUT_START + CUTOUT_LEN; c++) for (let r = GRID_SIZE - BEACON_SIZE; r < GRID_SIZE; r++) bottom.push({ r, c });
+  for (let r = CUTOUT_START; r < CUTOUT_START + CUTOUT_LEN; r++) for (let c = 0; c < BEACON_SIZE; c++) left.push({ r, c });
+  return [top, right, bottom, left]; // по 55 клітин кожна
+}
+const SIDE_CELL_COORDS = buildSideCoords();
+
+// Зворотна мапа для рендеру: [r][c] -> {side, idx} для клітин-даних.
+const SIDE_INDEX_GRID = Array.from({ length: GRID_SIZE }, () => new Array(GRID_SIZE).fill(null));
+SIDE_CELL_COORDS.forEach((coords, side) => {
+  coords.forEach(({ r, c }, idx) => { SIDE_INDEX_GRID[r][c] = { side, idx }; });
+});
+
+// Кутові маяки (центральна крапка кожного) — опорні точки для перспективи.
+const DST_CORNERS = [
+  cellCenterPx(2, 2),                               // верхній-лівий
+  cellCenterPx(2, GRID_SIZE - 3),                    // верхній-правий
+  cellCenterPx(GRID_SIZE - 3, GRID_SIZE - 3),        // нижній-правий
+  cellCenterPx(GRID_SIZE - 3, 2)                     // нижній-лівий
+];
+
+/* ================================================================
+   КОДБУК: 33 кирилиці / 26 латиниці (спільні коди-позиції, різні гліфи)
+   + 10 цифр + 19 спецсимволів (7 попередніх + 12 нових) + СТАРТ/PAD.
+   33 + 10 + 19 + 2 = 64 = 2^6 — рівно стеля 6-бітного символу, вільних
+   слотів не лишилось. Тому нижче є ЯВНА перевірка на цю межу: якщо
+   колись сюди додадуть ще один символ і вона мовчки пропаде — раніше
+   idx.toString(2) міг дати 7+ біт замість 6, і padStart це не обрізає,
+   через що ВЕСЬ потік бітів у секції зсувався на позицію.
+   ================================================================ */
+const CYRILLIC_LETTERS = "АБВГҐДЕЄЖЗИІЇЙКЛМНОПРСТУФХЦЧШЩЬЮЯ".split('');
+const LATIN_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split('').concat([null, null, null, null, null, null, null]);
+if (CYRILLIC_LETTERS.length !== LATIN_LETTERS.length) {
+  throw new Error('CYRILLIC_LETTERS і LATIN_LETTERS мають бути однакової довжини (спільні коди-позиції).');
+}
+const LETTER_SLOT_COUNT = CYRILLIC_LETTERS.length; // 33
+
+const DIGIT_CHARS = "0123456789".split('');
+const SPECIAL_CHARS = " .,@'+-".split('').concat(':;()%/*=#"_'.split(''));
+
+const START_UK_CHAR = '\u0001';
+const START_EN_CHAR = '\u0003';
+const PAD_CHAR = '\u0002';
+const BITS_PER_SYMBOL = 6;
+const CODEBOOK_MAX = 1 << BITS_PER_SYMBOL; // 64
+
+const NON_LETTER_CODEBOOK = DIGIT_CHARS.concat(SPECIAL_CHARS).concat([START_UK_CHAR, START_EN_CHAR, PAD_CHAR]);
+const CODEBOOK_LENGTH = LETTER_SLOT_COUNT + NON_LETTER_CODEBOOK.length;
+if (CODEBOOK_LENGTH > CODEBOOK_MAX) {
+  const msg = `КРИТИЧНО: кодбук (${CODEBOOK_LENGTH} символів) перевищує межу 6-бітного символу (${CODEBOOK_MAX}). ` +
+    `Заберіть зайві символи — інакше кодування бітів мовчки зсунеться і код стане нечитабельним.`;
+  earlyLog ? earlyLog(msg) : console.error(msg);
+  throw new Error(msg);
+}
+const START_UK_IDX = LETTER_SLOT_COUNT + DIGIT_CHARS.length + SPECIAL_CHARS.length;
+const START_EN_IDX = START_UK_IDX + 1;
+const PAD_IDX = START_EN_IDX + 1;
+
+function glyphTable(lang) {
+  return (lang === 'en' ? LATIN_LETTERS : CYRILLIC_LETTERS).concat(NON_LETTER_CODEBOOK);
+}
+function charToIndex(ch, lang) {
+  if (ch === START_UK_CHAR) return START_UK_IDX;
+  if (ch === START_EN_CHAR) return START_EN_IDX;
+  if (ch === PAD_CHAR) return PAD_IDX;
+  const table = glyphTable(lang);
+  return table.indexOf(ch);
+}
+function indexToChar(idx, lang) {
+  if (idx === START_UK_IDX) return START_UK_CHAR;
+  if (idx === START_EN_IDX) return START_EN_CHAR;
+  if (idx === PAD_IDX) return PAD_CHAR;
+  const table = glyphTable(lang);
+  return table[idx];
+}
+
+const MESSAGE_CHARS_FOR_UI = { uk: CYRILLIC_LETTERS.filter(Boolean), en: LATIN_LETTERS.filter(Boolean) };
+
+// 54 активних біти/сторону (+ 1 резервний біт для рівності геометрії
+// квадрата — 55 клітин фізично на сторону, символьна місткість рахується
+// від 54, щоб ACTIVE*3 ділилось на 6 без залишку; резервна клітина
+// завжди 0 і декодером ігнорується).
+const ACTIVE_BITS_PER_SECTION = PHYSICAL_BITS_PER_SIDE - 1; // 54
+const DATA_SYMBOL_SLOTS = Math.floor((ACTIVE_BITS_PER_SECTION * 3) / BITS_PER_SYMBOL);
+const SYMBOLS_PER_SECTION = DATA_SYMBOL_SLOTS / 3;
+const MAX_MESSAGE_LEN = DATA_SYMBOL_SLOTS - 2;
+
+document.getElementById('maxLenLabel').textContent = MAX_MESSAGE_LEN;
+
+let currentLang = 'uk'; // 'uk' | 'en'
+
+function renderAlphabetBlocks() {
+  const letters = currentLang === 'en' ? MESSAGE_CHARS_FOR_UI.en : MESSAGE_CHARS_FOR_UI.uk;
+  document.getElementById('blockLetters').innerHTML = '<strong>Букви:</strong> ' + letters.join(' ');
+  document.getElementById('blockDigits').innerHTML = '<strong>Цифри:</strong> ' + DIGIT_CHARS.join(' ');
+  document.getElementById('blockSpecial').innerHTML = '<strong>Спец:</strong> ' + SPECIAL_CHARS.join(' ');
+  document.getElementById('langLabel').textContent = currentLang === 'en' ? 'латиниця' : 'кирилиця';
+  document.getElementById('langToggleBtn').textContent = currentLang === 'en' ? 'ENG' : 'УКР';
+}
+document.getElementById('capacityNote').textContent =
+  `Місткість: ${ACTIVE_BITS_PER_SECTION} активних біт/сторону (+1 резервний) × 3 сторони даних = ${DATA_SYMBOL_SLOTS} символьних слотів → максимум ${MAX_MESSAGE_LEN} символів.`;
+
+function textToSections(message, lang) {
+  if (message.length > MAX_MESSAGE_LEN) {
+    throw new Error('Задовге повідомлення (максимум ' + MAX_MESSAGE_LEN + ')');
+  }
+  const symbols = [(lang === 'en' ? START_EN_CHAR : START_UK_CHAR)].concat(message.split(''));
+  while (symbols.length < DATA_SYMBOL_SLOTS) symbols.push(PAD_CHAR);
+
+  const sections = [[], [], []];
+  for (let i = 0; i < DATA_SYMBOL_SLOTS; i++) {
+    const ch = symbols[i];
+    const idx = charToIndex(ch, lang);
+    if (idx === -1 || idx === undefined) {
+      log('Помилка: символ "' + ch + '" не підтримується в поточній мові.');
+      throw new Error('Символ "' + ch + '" не підтримується в поточній мові (' + lang + ').');
+    }
+    const bin = idx.toString(2).padStart(BITS_PER_SYMBOL, '0');
+    for (const b of bin) sections[i % 3].push(b === '1' ? 1 : 0);
+  }
+  const checksum = new Array(ACTIVE_BITS_PER_SECTION).fill(0);
+  // Перші BITS_PER_SYMBOL бітів чек-суми навмисно ЗАВЖДИ 0 (сентинел),
+  // а не XOR — інакше чек-сума як "звичайний XOR-мотлох" мала б ~1/64
+  // шанс випадково збігтися з 6-бітним кодом СТАРТ (ідентифіковано
+  // тестом), і reassembleWithRotation міг би хибно "знайти" СТАРТ на
+  // невірному фізичному повороті. Два РЕАЛЬНІ символи повідомлення
+  // (sections[1][0..5], sections[2][0..5]) так ніколи не збігаються,
+  // бо СТАРТ/PAD-індекси (61,62,63) за протоколом зарезервовані й не
+  // видаються жодному звичайному символу — тож саме нульовий сентинел
+  // тут закриває єдину реальну діру. checksumAgreement() відповідно
+  // ігнорує ці ж перші BITS_PER_SYMBOL бітів при звірці.
+  for (let i = BITS_PER_SYMBOL; i < ACTIVE_BITS_PER_SECTION; i++) {
+    checksum[i] = sections[0][i] ^ sections[1][i] ^ sections[2][i];
+  }
+  sections.push(checksum);
+  return sections;
+}
+
+function decodeSectionsToText(sections, lang) {
+  let text = '';
+  for (let pos = 0; pos < SYMBOLS_PER_SECTION; pos++) {
+    for (let sec = 0; sec < 3; sec++) {
+      const bits = sections[sec].slice(pos * BITS_PER_SYMBOL, (pos + 1) * BITS_PER_SYMBOL);
+      const idx = parseInt(bits.join(''), 2);
+      const ch = indexToChar(idx, lang);
+      if (ch === START_UK_CHAR || ch === START_EN_CHAR) continue;
+      if (ch === PAD_CHAR) return text;
+      text += (ch === undefined || ch === null) ? '?' : ch;
+    }
+  }
+  return text;
+}
+
+/* ================================================================
+   МАЛЮВАННЯ ЕНКОДЕРА (canvas, клітина за клітиною)
+   ================================================================ */
+const bitsColor = document.getElementById('bitsColor');
+const anchorsColor = document.getElementById('anchorsColor');
+const clearPhotoBtn = document.getElementById('clearPhotoBtn');
+const langToggleBtn = document.getElementById('langToggleBtn');
+
+function drawCell(ctx, r, c, color) {
+  const { x, y } = cellTopLeftPx(r, c);
+  ctx.fillStyle = color;
+  ctx.fillRect(x + 1, y + 1, CELL - 2, CELL - 2);
+}
+
+bitsColor.addEventListener('input', refresh);
+anchorsColor.addEventListener('input', refresh);
+langToggleBtn.addEventListener('click', () => {
+  currentLang = currentLang === 'en' ? 'uk' : 'en';
+  renderAlphabetBlocks();
+  refresh();
+  log(`Мова вводу перемкнена на: ${currentLang === 'en' ? 'латиниця' : 'кирилиця'}.`);
+});
+
+function render(ctx, sections, photoImg) {
+  ctx.clearRect(0, 0, DIAGRAM, DIAGRAM);
+  ctx.fillStyle = BG_COLOR;
+  ctx.fillRect(0, 0, DIAGRAM, DIAGRAM);
+
+  // Фото малюємо ПЕРШИМ, під сіткою — квадратний виріз без круглої маски.
+  if (photoImg) {
+    const cutoutX = OFFSET + CUTOUT_START * CELL;
+    const cutoutY = cutoutX; // виріз симетричний по обох осях
+    const cutoutSize = CUTOUT_LEN * CELL;
+    const scale = Math.max(cutoutSize / photoImg.width, cutoutSize / photoImg.height);
+    const w = photoImg.width * scale, h = photoImg.height * scale;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(cutoutX, cutoutY, cutoutSize, cutoutSize);
+    ctx.clip();
+    ctx.drawImage(photoImg, cutoutX + cutoutSize / 2 - w / 2, cutoutY + cutoutSize / 2 - h / 2, w, h);
+    ctx.restore();
+  }
+
+  // Логічні секції (0,1,2 = дані, 3 = чексума) -> фізичні сторони.
+  // Той самий зсув "(s+3)%SECTIONS", що й на диску: конкретне значення
+  // зсуву не важливе для коректності — ротаційний пошук СТАРТу під час
+  // декодування переберe всі 4 фази й знайде правильну.
+  const fullBySide = [null, null, null, null];
+  for (let s = 0; s < SECTIONS; s++) {
+    const targetSide = (s + 3) % SECTIONS;
+    fullBySide[targetSide] = sections[s].concat([0]); // 54 активних + 1 резервний біт
+  }
+
+  for (let r = 0; r < GRID_SIZE; r++) {
+    for (let c = 0; c < GRID_SIZE; c++) {
+      if (isCutout(r, c)) continue;      // фото вже намальоване
+      if (isQuietRing(r, c)) continue;   // біла рамка навколо вирізу
+      if (isBeaconArea(r, c)) {
+        if (isBeaconPixel(r, c)) drawCell(ctx, r, c, anchorsColor.value);
+        continue;
+      }
+      const info = SIDE_INDEX_GRID[r][c];
+      if (info && fullBySide[info.side][info.idx] === 1) {
+        drawCell(ctx, r, c, bitsColor.value);
+      }
+    }
+  }
+}
+
+/* ================================================================
+   ЛОГ
+   ================================================================ */
+function log(msg) {
+  const box = document.getElementById('logBox');
+  const time = new Date().toLocaleTimeString();
+  box.value += `[${time}] ${msg}\n`;
+  box.scrollTop = box.scrollHeight;
+  console.log(msg);
+}
+
+/* ================================================================
+   UI ЕНКОДЕРА
+   ================================================================ */
+const canvas = document.getElementById('previewCanvas');
+const ctx = canvas.getContext('2d');
+const msgInput = document.getElementById('msgInput');
+const counter = document.getElementById('counter');
+const errorBox = document.getElementById('errorBox');
+const photoInput = document.getElementById('photoInput');
+const downloadBtn = document.getElementById('downloadBtn');
+let currentPhotoImg = null;
+let currentSections = null;
+
+function refresh() {
+  const text = msgInput.value.toUpperCase();
+  counter.textContent = text.length + ' / ' + MAX_MESSAGE_LEN;
+  counter.classList.toggle('over', text.length > MAX_MESSAGE_LEN);
+
+  try {
+    currentSections = textToSections(text, currentLang);
+    render(ctx, currentSections, currentPhotoImg);
+    errorBox.textContent = '';
+    downloadBtn.disabled = false;
+    log(`Намальовано (${currentLang}): "${text}" (${text.length}/${MAX_MESSAGE_LEN} симв.)`);
+  } catch (e) {
+    errorBox.textContent = e.message;
+    downloadBtn.disabled = true;
+  }
+}
+msgInput.addEventListener('input', refresh);
+photoInput.addEventListener('change', () => {
+  const file = photoInput.files[0];
+  if (!file) { currentPhotoImg = null; refresh(); return; }
+  const img = new Image();
+  img.onload = () => {
+    currentPhotoImg = img;
+    refresh();
+  };
+  img.src = URL.createObjectURL(file);
+});
+clearPhotoBtn.addEventListener('click', () => {
+  currentPhotoImg = null;
+  photoInput.value = '';
+  refresh();
+  log('Фото очищено.');
+});
+downloadBtn.addEventListener('click', () => {
+  const link = document.createElement('a');
+  const text = msgInput.value.toUpperCase().trim();
+  link.download = (text ? text.slice(0, 20).replace(/[^A-ZА-ЯЇІЄҐ0-9]+/gi, '_') : 'square-code') + '.png';
+  link.href = canvas.toDataURL('image/png');
+  link.click();
+  log('PNG завантажено.');
+});
+
+function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+
+let openCvReady = false;
+
+function flushPreLoadLog() {
+  if (window.__preLog && window.__preLog.length) {
+    window.__preLog.forEach(m => log(m));
+    window.__preLog = [];
+  }
+}
+function onCvReady() {
+  openCvReady = true;
+  flushPreLoadLog();
+  log('OpenCV готовий (WASM runtime ініціалізовано).');
+  const btn = document.getElementById('camToggleBtn');
+  btn.disabled = false;
+  btn.textContent = 'Увімкнути камеру';
+  document.getElementById('camPlaceholder').textContent = 'Камеру ще не увімкнено';
+}
+function onCvLoadError() {
+  flushPreLoadLog();
+  log('OpenCV НЕ завантажився. Камера лишається заблокованою.');
+  document.getElementById('camStatus').textContent = 'OpenCV не завантажився — див. лог.';
+  document.getElementById('camPlaceholder').textContent = 'OpenCV не завантажився — див. лог';
+}
+window.__cvReadyCallback = onCvReady;
+window.__cvErrorCallback = onCvLoadError;
+if (window.__openCvLoadState === 'ready') {
+  onCvReady();
+} else if (window.__openCvLoadState === 'script-error' || window.__openCvLoadState === 'cv-undefined' || window.__openCvLoadState === 'promise-rejected') {
+  onCvLoadError();
+} else {
+  flushPreLoadLog();
+}
+setTimeout(() => {
+  if (!openCvReady) {
+    log(`Попередження: OpenCV досі не готовий через 12с (стан: ${window.__openCvLoadState}).`);
+  }
+}, 12000);
+
+/* ================================================================
+   ДЕТЕКЦІЯ МАЯКІВ — ті самі вкладені контури (рамка -> дірка -> крапка),
+   що й на диску, лише пороги площ підігнані під квадратну (а не кругову)
+   форму маяка. ЦІ ПОРОГИ НЕ ТЕСТУВАЛИСЯ НАЖИВО З КАМЕРОЮ — стартова
+   оцінка з геометрії рендеру, може знадобитись підкрутити SQ_* нижче
+   після реального тестування на роздрукованому коді.
+   ================================================================ */
+function oddify(n) { return (n % 2 === 0) ? n + 1 : n; }
+const ADAPTIVE_C = 6;
+const SQ_MIN_MARKER_AREA = 10;
+const SQ_DOT_AREA_RATIO_MIN = 0.015;
+const SQ_DOT_AREA_RATIO_MAX = 0.15;
+const SQ_CONCENTRIC_TOL = 0.5;
+
+function detectSquareFinderCandidates(imgData, W, H) {
+  let src, gray, bin, hierarchy, contours;
+  let contourMats = [];
+  const candidates = [];
+  try {
+    src = cv.matFromImageData(imgData);
+    gray = new cv.Mat();
+    cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+    bin = new cv.Mat();
+    const blockSize = Math.max(11, Math.min(51, oddify(Math.round(Math.min(W, H) / 16))));
+    cv.adaptiveThreshold(gray, bin, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV, blockSize, ADAPTIVE_C);
+
+    contours = new cv.MatVector();
+    hierarchy = new cv.Mat();
+    cv.findContours(bin, contours, hierarchy, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE);
+
+    const n = contours.size();
+    for (let i = 0; i < n; i++) contourMats.push(contours.get(i));
+    const hData = hierarchy.data32S;
+
+    for (let i = 0; i < n; i++) {
+      const area = cv.contourArea(contourMats[i]);
+      if (area < SQ_MIN_MARKER_AREA) continue;
+      const holeIdx = hData[i * 4 + 2];
+      if (holeIdx < 0) continue;
+      const dotIdx = hData[holeIdx * 4 + 2];
+      if (dotIdx < 0) continue;
+
+      const dotArea = cv.contourArea(contourMats[dotIdx]);
+      const ratio = dotArea / area;
+      if (ratio < SQ_DOT_AREA_RATIO_MIN || ratio > SQ_DOT_AREA_RATIO_MAX) continue;
+
+      const mOuter = cv.moments(contourMats[i]);
+      const mDot = cv.moments(contourMats[dotIdx]);
+      if (mOuter.m00 <= 0 || mDot.m00 <= 0) continue;
+      const cxOuter = mOuter.m10 / mOuter.m00, cyOuter = mOuter.m01 / mOuter.m00;
+      const cxDot = mDot.m10 / mDot.m00, cyDot = mDot.m01 / mDot.m00;
+      const size = Math.sqrt(area); // приблизна сторона квадрата-маяка
+      if (Math.hypot(cxOuter - cxDot, cyOuter - cyDot) > size * SQ_CONCENTRIC_TOL) continue;
+
+      candidates.push({ x: cxOuter, y: cyOuter, size });
+    }
+
+  } finally {
+    if (contourMats && contourMats.length > 0) {
+      contourMats.forEach(m => {
+        if (m && typeof m.delete === 'function') m.delete();
+      });
+    }
+    if (src) src.delete();
+    if (gray) gray.delete();
+    if (bin) bin.delete();
+    if (hierarchy) hierarchy.delete();
+    if (contours) contours.delete();
+  }
+  return candidates;
+}
+
+function nearestCandidate(candidates, predicted, tolPx) {
+  let best = null, bestD = Infinity;
+  for (const c of candidates) {
+    const d = dist(c, predicted);
+    if (d < tolPx && d < bestD) { bestD = d; best = c; }
+  }
+  return best;
+}
+
+// Пошук 4 кутів "з нуля": опукла оболонка кандидатів (відсікає внутрішній
+// шум) -> спрощення до 4 вершин -> сортування за кутом навколо центроїда
+// (дає стабільний обхід за годинниковою стрілкою TL->TR->BR->BL, з
+// довільною фазою — фазу далі вирішує reassembleWithRotation).
+function findSquareCorners(candidates) {
+  if (candidates.length < 4) {
+    return { ok: false, reason: `недостатньо маяків (${candidates.length}/4)` };
+  }
+  let pts2f, hull, approx;
+  try {
+    const data = [];
+    candidates.forEach(c => { data.push(Math.round(c.x), Math.round(c.y)); });
+    pts2f = cv.matFromArray(candidates.length, 1, cv.CV_32SC2, data);
+    hull = new cv.Mat();
+    cv.convexHull(pts2f, hull, false, true);
+    if (hull.rows < 4) return { ok: false, reason: `опукла оболонка < 4 точок (${hull.rows})` };
+
+    approx = new cv.Mat();
+    const peri = cv.arcLength(hull, true);
+    cv.approxPolyDP(hull, approx, 0.03 * peri, true);
+    if (approx.rows !== 4) {
+      return { ok: false, reason: `не звелося до 4 кутів (отримано ${approx.rows})` };
+    }
+
+    const corners = [];
+    for (let i = 0; i < 4; i++) {
+      corners.push({ x: approx.data32S[i * 2], y: approx.data32S[i * 2 + 1] });
+    }
+    const cx = corners.reduce((s, p) => s + p.x, 0) / 4;
+    const cy = corners.reduce((s, p) => s + p.y, 0) / 4;
+    corners.sort((a, b) => Math.atan2(a.y - cy, a.x - cx) - Math.atan2(b.y - cy, b.x - cx));
+
+    const sideLens = [0, 1, 2, 3].map(i => dist(corners[i], corners[(i + 1) % 4]));
+    const avgSide = sideLens.reduce((a, b) => a + b, 0) / 4;
+    const scalePx = avgSide / (GRID_SIZE + MARGIN_CELLS * 2);
+    return { ok: true, points: corners, scalePx };
+  } finally {
+    if (pts2f) pts2f.delete();
+    if (hull) hull.delete();
+    if (approx) approx.delete();
+  }
+}
+
+function trackedFromCandidates(candidates, predictedPts, scalePx) {
+  const tol = Math.max(12, scalePx * (CELL * 0.9));
+  const found = predictedPts.map(p => nearestCandidate(candidates, p, tol));
+  if (found.some(f => !f)) return { ok: false, foundCount: found.filter(Boolean).length };
+  return { ok: true, points: found };
+}
+
+/* ================================================================
+   ЧИТАННЯ БІТІВ — cv.warpPerspective у чотирикутник з 4 кутових
+   маяків, потім пряма вибірка 55 клітинних центрів на кожній стороні.
+   ================================================================ */
+function sampleGridMat(imgData, pts) {
+  let src, gray, warped, thresh, trans;
+  const srcPts = cv.matFromArray(4, 1, cv.CV_32FC2, [
+    pts[0].x, pts[0].y, pts[1].x, pts[1].y,
+    pts[2].x, pts[2].y, pts[3].x, pts[3].y
+  ]);
+  const dstPts = cv.matFromArray(4, 1, cv.CV_32FC2, [
+    DST_CORNERS[0].x, DST_CORNERS[0].y,
+    DST_CORNERS[1].x, DST_CORNERS[1].y,
+    DST_CORNERS[2].x, DST_CORNERS[2].y,
+    DST_CORNERS[3].x, DST_CORNERS[3].y
+  ]);
+  const physicalSides = SIDE_NAMES.map(() => new Array(PHYSICAL_BITS_PER_SIDE).fill(0));
+  try {
+    src = cv.matFromImageData(imgData);
+    gray = new cv.Mat();
+    cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+    trans = cv.getPerspectiveTransform(srcPts, dstPts);
+    warped = new cv.Mat();
+    cv.warpPerspective(gray, warped, trans, new cv.Size(DIAGRAM, DIAGRAM));
+    thresh = new cv.Mat();
+    cv.adaptiveThreshold(warped, thresh, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV, 21, 5);
+
+    SIDE_CELL_COORDS.forEach((coords, si) => {
+      coords.forEach(({ r, c }, k) => {
+        const p = cellCenterPx(r, c);
+        const px = Math.round(p.x), py = Math.round(p.y);
+        if (px >= 0 && px < DIAGRAM && py >= 0 && py < DIAGRAM) {
+          physicalSides[si][k] = thresh.ucharPtr(py, px)[0] > 128 ? 1 : 0;
+        }
+      });
+    });
+  } finally {
+    if (src) src.delete(); if (gray) gray.delete(); if (warped) warped.delete();
+    if (thresh) thresh.delete(); if (trans) trans.delete();
+    srcPts.delete(); dstPts.delete();
+  }
+  return { physicalSides };
+}
+
+function reassembleWithRotation(physicalSides) {
+  // ВАЖЛИВО: чек-сума (checksum = d0^d1^d2) математично інваріантна щодо
+  // циклічного зсуву 4 фізичних сторін — XOR будь-яких 3 з 4 завжди
+  // дорівнює 4-й, незалежно від того, яка сторона фізично потрапила на
+  // місце "чек-суми". Тобто checksumAgreement() НЕ здатна відрізнити
+  // правильний поворот від неправильного (перевірено тестом) — це може
+  // зробити лише сам збіг СТАРТ-патерну. А в нього є ~1/64 шанс хибного
+  // спрацювання на кожному з 3 НЕправильних поворотів. Тому тут
+  // збираються ВСІ 4 варіанти, і рішення приймається лише якщо збіг
+  // СТАРТу єдиний — інакше чесно startOk:false замість тихого хибного
+  // декодування на випадково знайденому першому збігу.
+  const matches = [];
+  for (let rot = 0; rot < SECTIONS; rot++) {
+    const sections = [0, 1, 2, 3].map(logicalIdx => physicalSides[(logicalIdx + rot) % SECTIONS]);
+    const first6 = sections[0].slice(0, BITS_PER_SYMBOL);
+    const idx = parseInt(first6.join(''), 2);
+    if (idx === START_UK_IDX) matches.push({ sections, rot, lang: 'uk' });
+    else if (idx === START_EN_IDX) matches.push({ sections, rot, lang: 'en' });
+  }
+  if (matches.length === 1) {
+    return { sections: matches[0].sections, rot: matches[0].rot, startOk: true, lang: matches[0].lang };
+  }
+  const sections0 = [0, 1, 2, 3].map(logicalIdx => physicalSides[logicalIdx]);
+  return { sections: sections0, rot: 0, startOk: false, lang: 'uk', ambiguous: matches.length > 1 };
+}
+
+function checksumAgreement(sections) {
+  const [d0, d1, d2, cs] = sections;
+  let agree = 0;
+  const checkedBits = ACTIVE_BITS_PER_SECTION - BITS_PER_SYMBOL;
+  for (let i = BITS_PER_SYMBOL; i < ACTIVE_BITS_PER_SECTION; i++) {
+    if ((d0[i] ^ d1[i] ^ d2[i]) === cs[i]) agree++;
+  }
+  return agree / checkedBits;
+}
+
+function detectAndDecode(imgData, W, H, hiImgData, hiW, hiH) {
+  if (!openCvReady) return { ok: false, reason: 'OpenCV ще завантажується...', mode: 'loading' };
+
+  const candidates = detectSquareFinderCandidates(imgData, W, H);
+  let pts, scalePx, mode;
+
+  if (smoothedCorners) {
+    const tr = trackedFromCandidates(candidates, smoothedCorners, smoothedScalePx);
+    if (tr.ok) { pts = tr.points; scalePx = smoothedScalePx; mode = 'tracked'; }
+  }
+
+  if (!pts) {
+    const cs = findSquareCorners(candidates);
+    if (!cs.ok) {
+      trackingMiss();
+      return { ok: false, reason: `${cs.reason} [маяків у кадрі: ${candidates.length}]`, mode: 'cold-fail' };
+    }
+    pts = cs.points; scalePx = cs.scalePx; mode = 'cold';
+  }
+
+  const useHiRes = hiImgData && hiW && hiH;
+  const sampleImg = useHiRes ? hiImgData : imgData;
+  const scale = useHiRes ? (hiW / W) : 1;
+  const samplePts = useHiRes ? pts.map(p => ({ x: p.x * scale, y: p.y * scale })) : pts;
+
+  const { physicalSides } = sampleGridMat(sampleImg, samplePts);
+  const { sections, startOk, lang } = reassembleWithRotation(physicalSides);
+  const agreement = checksumAgreement(sections);
+
+  updateCornerState(pts, scalePx);
+
+  return { ok: true, mode, pts, scalePx, sections, startOk, agreement, lang };
+}
+
+const CORNER_EMA_ALPHA = 0.35;
+const TRACK_LOST_AFTER = 6;
+let smoothedCorners = null;
+let smoothedScalePx = 0;
+let trackMissCount = 0;
+
+function updateCornerState(pts, scalePx) {
+  if (!smoothedCorners) {
+    smoothedCorners = pts.map(p => ({ ...p }));
+    smoothedScalePx = scalePx;
+  } else {
+    const a = CORNER_EMA_ALPHA;
+    smoothedCorners = smoothedCorners.map((sp, i) => ({
+      x: sp.x * (1 - a) + pts[i].x * a,
+      y: sp.y * (1 - a) + pts[i].y * a
+    }));
+    smoothedScalePx = smoothedScalePx * (1 - a) + scalePx * a;
+  }
+  trackMissCount = 0;
+}
+function trackingMiss() {
+  trackMissCount++;
+  if (trackMissCount >= TRACK_LOST_AFTER) { smoothedCorners = null; }
+}
+function resetTracking() { smoothedCorners = null; trackMissCount = 0; }
+
+const CONFIRM_STREAK = 3;
+const MIN_AGREEMENT = 0.93;
+const STABILITY_TOL_PX = 14;
+let recentCentroids = [];
+let recentTexts = [];
+function centroidOf(pts) { return { x: pts.reduce((s,p)=>s+p.x,0)/pts.length, y: pts.reduce((s,p)=>s+p.y,0)/pts.length }; }
+function resetStability() { recentCentroids = []; recentTexts = []; }
+function checkStability(centroid, text) {
+  recentCentroids.push(centroid);
+  recentTexts.push(text);
+  if (recentCentroids.length > CONFIRM_STREAK) { recentCentroids.shift(); recentTexts.shift(); }
+  if (recentCentroids.length < CONFIRM_STREAK) return false;
+  const allSameText = recentTexts.every(t => t === recentTexts[recentTexts.length - 1]);
+  if (!allSameText) return false;
+  const ref = recentCentroids[recentCentroids.length - 1];
+  for (const c of recentCentroids) {
+    if (Math.hypot(c.x - ref.x, c.y - ref.y) > STABILITY_TOL_PX) return false;
+  }
+  return true;
+}
+
+let camStream = null;
+let scanTimer = null;
+let locked = false;
+
+function drawGuide(W, H) {
+  const gc = document.getElementById('guideCanvas');
+  gc.width = W; gc.height = H;
+  const g = gc.getContext('2d');
+  g.clearRect(0, 0, W, H);
+  const cx = W / 2, cy = H / 2;
+  const half = Math.min(W, H) * 0.42;
+
+  g.fillStyle = 'rgba(0,0,0,0.6)';
+  g.fillRect(0, 0, W, H);
+  g.globalCompositeOperation = 'destination-out';
+  g.fillStyle = '#000';
+  g.fillRect(cx - half, cy - half, half * 2, half * 2);
+  g.globalCompositeOperation = 'source-over';
+  g.save();
+  g.setLineDash([4, 4]);
+  g.lineWidth = 1.5;
+  g.strokeStyle = '#ffffff';
+  g.strokeRect(cx - half, cy - half, half * 2, half * 2);
+  g.restore();
+  g.strokeStyle = 'rgba(255,255,255,0.4)';
+  g.lineWidth = 1;
+  g.beginPath();
+  g.moveTo(cx - 8, cy); g.lineTo(cx + 8, cy);
+  g.moveTo(cx, cy - 8); g.lineTo(cx, cy + 8);
+  g.stroke();
+  g.font = '11px monospace';
+  g.textAlign = 'center';
+  g.fillStyle = 'rgba(255,255,255,0.5)';
+  g.fillText('тримайте квадрат у рамці', cx, (cy + half + 16 < H - 4) ? cy + half + 16 : cy - half - 8);
+}
+function clearGuide() {
+  const gc = document.getElementById('guideCanvas');
+  gc.getContext('2d').clearRect(0, 0, gc.width, gc.height);
+}
+window.addEventListener('resize', () => {
+  if (camStream) {
+    const wrap = document.getElementById('camWrap');
+    drawGuide(wrap.clientWidth || 320, wrap.clientHeight || 320);
+  }
+});
+
+async function toggleCamera() {
+  if (!openCvReady) return;
+  const btn = document.getElementById('camToggleBtn');
+  if (camStream) { stopCamera(); btn.textContent = 'Увімкнути камеру'; return; }
+  log('Запит доступу до камери...');
+  try {
+    camStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 720 }, height: { ideal: 720 } }
+    });
+    const video = document.getElementById('camVideo');
+    video.srcObject = camStream;
+    await new Promise((resolve) => { if (video.readyState >= 1) { resolve(); return; } video.onloadedmetadata = () => resolve(); });
+    await video.play();
+    document.getElementById('camPlaceholder').style.display = 'none';
+    document.getElementById('camLive').classList.add('active');
+    const wrapEl = document.getElementById('camWrap');
+    drawGuide(wrapEl.clientWidth || video.videoWidth || 320, wrapEl.clientHeight || video.videoHeight || 320);
+    btn.textContent = 'Вимкнути камеру';
+    document.getElementById('rescanBtn').style.display = 'none';
+    document.getElementById('camResultsBox').innerHTML = '';
+    locked = false;
+    resetStability();
+    resetTracking();
+    scanTimer = setInterval(scanFrame, 200);
+  } catch (e) {
+    log(`ПОМИЛКА камери: ${e.message}`);
+  }
+}
+function stopCamera() {
+  if (scanTimer) { clearInterval(scanTimer); scanTimer = null; }
+  if (camStream) { camStream.getTracks().forEach(t => t.stop()); camStream = null; }
+  document.getElementById('camVideo').srcObject = null;
+  document.getElementById('camLive').classList.remove('active');
+  document.getElementById('camPlaceholder').style.display = 'flex';
+  document.getElementById('camStatus').textContent = 'Камеру вимкнено.';
+  locked = false;
+  resetStability();
+  resetTracking();
+  const oc = document.getElementById('overlayCanvas');
+  oc.getContext('2d').clearRect(0, 0, oc.width, oc.height);
+  clearGuide();
+  document.getElementById('scanStatusOverlay').textContent = '';
+}
+
+function drawLiveOverlay(W, H, det, statusText) {
+  const oc = document.getElementById('overlayCanvas');
+  oc.width = W; oc.height = H;
+  const octx = oc.getContext('2d');
+  octx.clearRect(0, 0, W, H);
+  if (det && det.pts) {
+    const pts = det.pts;
+    octx.strokeStyle = 'rgba(120,220,120,0.9)';
+    octx.lineWidth = 2;
+    octx.beginPath();
+    octx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < 4; i++) octx.lineTo(pts[i].x, pts[i].y);
+    octx.closePath();
+    octx.stroke();
+    octx.fillStyle = 'rgba(255,200,80,0.9)';
+    for (const p of pts) { octx.beginPath(); octx.arc(p.x, p.y, 5, 0, Math.PI*2); octx.fill(); }
+  }
+  document.getElementById('scanStatusOverlay').textContent = statusText || '';
+}
+
+function drawDecodedOverlay(W, H, det) {
+  const oc = document.getElementById('overlayCanvas');
+  oc.width = W; oc.height = H;
+  const octx = oc.getContext('2d');
+  octx.clearRect(0, 0, W, H);
+  const pts = det.pts;
+
+  octx.fillStyle = 'rgba(40,110,210,0.28)';
+  octx.beginPath();
+  octx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < 4; i++) octx.lineTo(pts[i].x, pts[i].y);
+  octx.closePath();
+  octx.fill();
+  octx.strokeStyle = 'rgba(120,220,120,0.9)';
+  octx.lineWidth = 2;
+  octx.stroke();
+  octx.fillStyle = 'rgba(255,200,80,0.95)';
+  for (const p of pts) { octx.beginPath(); octx.arc(p.x, p.y, 5, 0, Math.PI*2); octx.fill(); }
+}
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+let frameCounter = 0;
+function scanFrame() {
+  if (locked) return;
+  const video = document.getElementById('camVideo');
+  const wrap = document.getElementById('camWrap');
+  if (!camStream || video.readyState < 2) return;
+
+  const loSize = wrap.clientWidth || 320;
+  const vw = video.videoWidth, vh = video.videoHeight;
+  const hiSize = vw && vh ? Math.min(Math.min(vw, vh), 640) : loSize;
+
+  const hiCanvas = document.createElement('canvas');
+  hiCanvas.width = hiSize; hiCanvas.height = hiSize;
+  const hctx = hiCanvas.getContext('2d', { willReadFrequently: true });
+  if (vw && vh) {
+    const sSize = Math.min(vw, vh);
+    const sx = (vw - sSize) / 2, sy = (vh - sSize) / 2;
+    hctx.drawImage(video, sx, sy, sSize, sSize, 0, 0, hiSize, hiSize);
+  } else {
+    hctx.drawImage(video, 0, 0, hiSize, hiSize);
+  }
+  const hiImgData = hctx.getImageData(0, 0, hiSize, hiSize);
+
+  const loCanvas = document.createElement('canvas');
+  loCanvas.width = loSize; loCanvas.height = loSize;
+  const cctx = loCanvas.getContext('2d', { willReadFrequently: true });
+  cctx.drawImage(hiCanvas, 0, 0, hiSize, hiSize, 0, 0, loSize, loSize);
+  const imgData = cctx.getImageData(0, 0, loSize, loSize);
+
+  const size = loSize;
+  const det = detectAndDecode(imgData, size, size, hiImgData, hiSize, hiSize);
+  frameCounter++;
+
+  if (!det.ok) {
+    recentCentroids = []; recentTexts = [];
+    drawLiveOverlay(size, size, det, `Шукаю якорі... (${det.reason})`);
+    document.getElementById('camStatus').textContent = `Пошук: ${det.reason}`;
+    if (frameCounter % 5 === 0) log(`Кадр ${frameCounter}: ${det.reason}`);
+    return;
+  }
+  if (!det.startOk || det.agreement < MIN_AGREEMENT) {
+    recentCentroids = []; recentTexts = [];
+    const reason = !det.startOk ? 'старт-символ не збігається' : `узгодженість чексуми ${(det.agreement*100).toFixed(0)}%`;
+    drawLiveOverlay(size, size, det, `Маяки знайдено (${det.mode}), ${reason}`);
+    document.getElementById('camStatus').textContent = `Кандидат — ${reason}, шукаю стабільніший кадр...`;
+    if (frameCounter % 5 === 0) log(`Кадр ${frameCounter}: маяки зловлено (${det.mode}), ${reason}`);
+    return;
+  }
+
+  let votedText;
+  try {
+    votedText = decodeSectionsToText(det.sections, det.lang);
+  } catch (e) {
+    votedText = '';
+  }
+  const centroid = centroidOf(det.pts);
+  const stable = checkStability(centroid, votedText + '|' + det.lang);
+
+  drawLiveOverlay(size, size, det, stable ? 'Стабільно, декодую...' : `Стабілізація... (${recentCentroids.length}/${CONFIRM_STREAK}) [${det.mode}, ${det.lang}]`);
+  document.getElementById('camStatus').textContent = stable
+    ? 'Впевнено знайдено — декодую.'
+    : `Кандидат (чексума ${(det.agreement*100).toFixed(0)}%, ${det.mode}, ${det.lang}) — стабілізація ${recentCentroids.length}/${CONFIRM_STREAK}`;
+
+  if (stable) {
+    locked = true;
+    log(`Зафіксовано: режим=${det.mode}, мова=${det.lang}, чексума=${(det.agreement*100).toFixed(1)}%, текст="${votedText}".`);
+    finishDecode(size, size, det, votedText);
+  }
+}
+
+function finishDecode(W, H, det, votedText) {
+  drawDecodedOverlay(W, H, det);
+  const upperText = votedText.toUpperCase();
+  document.getElementById('camResultsBox').innerHTML =
+    `<div class="capacity-note" style="margin-bottom:6px;">Мова: ${det.lang === 'en' ? 'латиниця' : 'кирилиця'}</div>` +
+    `<div class="final-result">${escapeHtml(upperText)}</div>`;
+  document.getElementById('rescanBtn').style.display = 'block';
+  log(`Результат: ${upperText}`);
+}
+
+function rescan() {
+  locked = false;
+  resetStability();
+  resetTracking();
+  document.getElementById('camResultsBox').innerHTML = '';
+  document.getElementById('rescanBtn').style.display = 'none';
+  const oc = document.getElementById('overlayCanvas');
+  oc.getContext('2d').clearRect(0, 0, oc.width, oc.height);
+}
+
+document.getElementById('camToggleBtn').addEventListener('click', toggleCamera);
+document.getElementById('rescanBtn').addEventListener('click', rescan);
+document.getElementById('copyLogBtn').addEventListener('click', () => { navigator.clipboard.writeText(document.getElementById('logBox').value); });
+document.getElementById('clearLogBtn').addEventListener('click', () => { document.getElementById('logBox').value = ''; });
+
+renderAlphabetBlocks();
+refresh();
+</script>
+
+</body>
+</html>
