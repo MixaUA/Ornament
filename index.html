@@ -580,12 +580,16 @@ setTimeout(() => {
    ================================================================ */
 function oddify(n) { return (n % 2 === 0) ? n + 1 : n; }
 const ADAPTIVE_C = 6;
-const SQ_MIN_MARKER_AREA = 10;
-// Квадратна крапка має площу ≈ (1/5)² відносно зовнішнього: ~0.04.
-// Розширюємо діапазон для реальних умов (розмазування, перспектива).
-const SQ_DOT_AREA_RATIO_MIN = 0.005;
-const SQ_DOT_AREA_RATIO_MAX = 0.40;
-const SQ_CONCENTRIC_TOL = 0.7;
+// Параметри детекції маяка (квадрат 5×5, рамка + порожній проміжок + центральна крапка).
+// Взяті з референсу Cam Disc Scanner_10 і підігнані під квадратну (не кругову) форму.
+const SQ_MIN_MARKER_AREA = 6;
+// Відносна площа крапки до зовнішнього контуру: ~0.06–0.5 (ширший діапазон для реальних умов).
+const SQ_DOT_AREA_RATIO_MIN = 0.06;
+const SQ_DOT_AREA_RATIO_MAX = 0.5;
+// Допуск зміщення центрів крапки і рамки відносно "радіуса" зовнішнього квадрата.
+const SQ_CONCENTRIC_TOL = 0.4;
+// Максимальний розкид розмірів маяків: (max-min)/median — відсіює випадковий шум.
+const SQ_SIZE_SPREAD_MAX = 0.6;
 
 function detectSquareFinderCandidates(imgData, W, H) {
   let src, gray, bin, hierarchy, contours;
@@ -624,7 +628,9 @@ function detectSquareFinderCandidates(imgData, W, H) {
       if (mOuter.m00 <= 0 || mDot.m00 <= 0) continue;
       const cxOuter = mOuter.m10 / mOuter.m00, cyOuter = mOuter.m01 / mOuter.m00;
       const cxDot = mDot.m10 / mDot.m00, cyDot = mDot.m01 / mDot.m00;
-      const size = Math.sqrt(area); // приблизна сторона квадрата-маяка
+      // Для квадратного маяка використовуємо sqrt(area) як "радіус" — аналогічно до
+      // sqrt(area/PI) у круглому референсі, тільки без PI.
+      const size = Math.sqrt(area);
       if (Math.hypot(cxOuter - cxDot, cyOuter - cyDot) > size * SQ_CONCENTRIC_TOL) continue;
 
       candidates.push({ x: cxOuter, y: cyOuter, size });
@@ -654,65 +660,53 @@ function nearestCandidate(candidates, predicted, tolPx) {
   return best;
 }
 
-// Пошук 4 кутів "з нуля": опукла оболонка кандидатів (відсікає внутрішній
-// шум) -> спрощення до 4 вершин -> сортування за кутом навколо центроїда
-// (дає стабільний обхід за годинниковою стрілкою TL->TR->BR->BL, з
-// довільною фазою — фазу далі вирішує reassembleWithRotation).
+// Пошук 4 кутів — портований з референсу coldStartFromQuad:
+// НЕ використовує convexHull/approxPolyDP (вони ненадійні при малій кількості
+// точок або неідеальних кутах). Замість цього:
+// 1. Якщо кандидатів > 4 — вибираємо 4 найближчих до медіанного розміру.
+// 2. Перевіряємо розкид розмірів (відсіює шум).
+// 3. Сортуємо за кутом навколо центроїда (дає обхід TL->TR->BR->BL).
 function findSquareCorners(candidates) {
   if (candidates.length < 4) {
     return { ok: false, reason: `недостатньо маяків (${candidates.length}/4)` };
   }
-  let pts2f, hull, approx;
-  try {
-    const data = [];
-    candidates.forEach(c => { data.push(Math.round(c.x), Math.round(c.y)); });
-    pts2f = cv.matFromArray(candidates.length, 1, cv.CV_32SC2, data);
-    hull = new cv.Mat();
-    cv.convexHull(pts2f, hull, false, true);
-    if (hull.rows < 4) return { ok: false, reason: `опукла оболонка < 4 точок (${hull.rows})` };
 
-    // Адаптивний пошук epsilon: збільшуємо поступово поки не отримаємо рівно 4 кути.
-    approx = new cv.Mat();
-    const peri = cv.arcLength(hull, true);
-    let resultCorners = null;
-    for (let epsFactor = 0.02; epsFactor <= 0.15; epsFactor += 0.01) {
-      approx.delete && approx.delete();
-      approx = new cv.Mat();
-      cv.approxPolyDP(hull, approx, epsFactor * peri, true);
-      if (approx.rows === 4) {
-        const c = [];
-        for (let i = 0; i < 4; i++) c.push({ x: approx.data32S[i * 2], y: approx.data32S[i * 2 + 1] });
-        resultCorners = c;
-        break;
-      }
-    }
-    // Запасний варіант: якщо рівно 4 кандидати — використовуємо їх безпосередньо.
-    if (!resultCorners) {
-      if (candidates.length === 4) {
-        resultCorners = candidates.map(c => ({ x: Math.round(c.x), y: Math.round(c.y) }));
-      } else {
-        return { ok: false, reason: `не звелося до 4 кутів (Hull=${hull.rows}, кандидатів=${candidates.length})` };
-      }
-    }
-
-    const corners = resultCorners;
-    const cx = corners.reduce((s, p) => s + p.x, 0) / 4;
-    const cy = corners.reduce((s, p) => s + p.y, 0) / 4;
-    corners.sort((a, b) => Math.atan2(a.y - cy, a.x - cx) - Math.atan2(b.y - cy, b.x - cx));
-
-    const sideLens = [0, 1, 2, 3].map(i => dist(corners[i], corners[(i + 1) % 4]));
-    const avgSide = sideLens.reduce((a, b) => a + b, 0) / 4;
-    const scalePx = avgSide / (GRID_SIZE + MARGIN_CELLS * 2);
-    return { ok: true, points: corners, scalePx };
-  } finally {
-    if (pts2f) pts2f.delete();
-    if (hull) hull.delete();
-    if (approx && approx.delete) approx.delete();
+  let chosen = candidates;
+  if (chosen.length > 4) {
+    // Вибираємо 4 кандидати найближчі до медіанного розміру маяка
+    const sizes = chosen.map(c => c.size).slice().sort((a, b) => a - b);
+    const med = sizes[Math.floor(sizes.length / 2)];
+    chosen = chosen.slice().sort((a, b) => Math.abs(a.size - med) - Math.abs(b.size - med)).slice(0, 4);
   }
+  if (chosen.length !== 4) {
+    return { ok: false, reason: `не вдалося вибрати 4 маяки (є ${candidates.length})` };
+  }
+
+  // Перевірка: розкид розмірів не має бути надто великим
+  const sizes = chosen.map(c => c.size);
+  const minS = Math.min(...sizes), maxS = Math.max(...sizes);
+  const medS = sizes.slice().sort((a, b) => a - b)[1];
+  if (medS > 0 && (maxS - minS) / medS > SQ_SIZE_SPREAD_MAX) {
+    return { ok: false, reason: `розмір маяків занадто різний (${minS.toFixed(1)}..${maxS.toFixed(1)})` };
+  }
+
+  const cx = chosen.reduce((s, c) => s + c.x, 0) / 4;
+  const cy = chosen.reduce((s, c) => s + c.y, 0) / 4;
+  // Сортування за кутом — дає стабільний обхід з довільною фазою
+  const corners = chosen.slice().sort((a, b) => Math.atan2(a.y - cy, a.x - cx) - Math.atan2(b.y - cy, b.x - cx));
+
+  const avgSize = sizes.reduce((a, b) => a + b, 0) / 4;
+  const sideLens = [0, 1, 2, 3].map(i => dist(corners[i], corners[(i + 1) % 4]));
+  const avgSide = sideLens.reduce((a, b) => a + b, 0) / 4;
+  const scalePx = avgSide / (GRID_SIZE + MARGIN_CELLS * 2);
+  return { ok: true, points: corners, scalePx };
 }
 
 function trackedFromCandidates(candidates, predictedPts, scalePx) {
-  const tol = Math.max(12, scalePx * (CELL * 0.9));
+  // Допуск: аналогічно референсу — max(12, scalePx * 0.9)
+  // scalePx тут = avgSide / 27 ≈ розмір однієї клітини в пікселях
+  // Маяк = 5 клітин, тож його "радіус" ≈ scalePx * BEACON_SIZE / 2
+  const tol = Math.max(12, scalePx * BEACON_SIZE * 0.9);
   const found = predictedPts.map(p => nearestCandidate(candidates, p, tol));
   if (found.some(f => !f)) return { ok: false, foundCount: found.filter(Boolean).length };
   return { ok: true, points: found };
