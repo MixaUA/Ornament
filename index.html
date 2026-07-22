@@ -92,6 +92,25 @@ button:disabled { opacity: 0.4; cursor: default; transform: none; }
 button.secondary { background: rgba(255,255,255,0.12); color: #fff; box-shadow: none; border: 1px solid rgba(255,255,255,0.25); }
 button.lang-toggle { background: rgba(255,255,255,0.18); color: #fff; font-size: 12px; padding: 8px 12px; }
 canvas#previewCanvas { width: 100%; aspect-ratio: 1 / 1; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.2); background: #fff; }
+
+.joystick {
+  display: grid;
+  grid-template-columns: 44px 44px 44px;
+  grid-template-rows: 44px 44px 44px;
+  gap: 4px;
+  justify-content: center;
+  margin-top: 4px;
+}
+.joy-btn {
+  padding: 0; font-size: 16px; line-height: 1; touch-action: none;
+  user-select: none; -webkit-user-select: none;
+}
+.joy-up { grid-column: 2; grid-row: 1; }
+.joy-left { grid-column: 1; grid-row: 2; }
+.joy-mid { grid-column: 2; grid-row: 2; background: rgba(255,255,255,0.12); color: #fff; border: 1px solid rgba(255,255,255,0.25); box-shadow: none; }
+.joy-right { grid-column: 3; grid-row: 2; }
+.joy-down { grid-column: 2; grid-row: 3; }
+
 .error { font-size: 13px; color: #ff8a8a; min-height: 18px; font-weight: 500; }
 .capacity-note { font-size: 12px; color: rgba(255,255,255,0.5); }
 
@@ -145,6 +164,22 @@ textarea { width: 100%; height: 180px; font-family: monospace; font-size: 11px; 
     </div>
   </div>
 
+  <div class="input-group" id="photoJoystickGroup" style="display: none; align-items: center;">
+    <label>Позиція фото (утримуй для швидкого руху)</label>
+    <div class="joystick">
+      <button type="button" class="joy-btn joy-up" data-dx="0" data-dy="-1" aria-label="Вгору">▲</button>
+      <button type="button" class="joy-btn joy-left" data-dx="-1" data-dy="0" aria-label="Ліворуч">◀</button>
+      <button type="button" class="joy-btn joy-mid" id="joyCenterBtn" aria-label="Центр">●</button>
+      <button type="button" class="joy-btn joy-right" data-dx="1" data-dy="0" aria-label="Праворуч">▶</button>
+      <button type="button" class="joy-btn joy-down" data-dx="0" data-dy="1" aria-label="Вниз">▼</button>
+    </div>
+    <div style="display: flex; align-items: center; gap: 8px; width: 100%; margin-top: 10px;">
+      <label for="photoScaleSlider" style="min-width: 60px; margin: 0;">Масштаб</label>
+      <input type="range" id="photoScaleSlider" min="50" max="200" value="100" style="flex: 1;" />
+      <span class="counter" id="photoScaleLabel" style="min-width: 42px; text-align: right;">100%</span>
+    </div>
+  </div>
+
   <div class="input-group" style="display: flex; flex-direction: row; gap: 10px; flex-wrap: wrap;">
     <div style="flex: 1; min-width: 120px;">
       <label for="bitsColor">Колір бітів</label>
@@ -161,7 +196,10 @@ textarea { width: 100%; height: 180px; font-family: monospace; font-size: 11px; 
 
   <canvas id="previewCanvas" width="540" height="540"></canvas>
 
-  <button id="downloadBtn">Завантажити PNG</button>
+  <div class="btn-row" style="margin-top: 10px;">
+    <button id="downloadBtn">Завантажити PNG</button>
+    <button id="downloadSvgBtn">Завантажити SVG</button>
+  </div>
 </div>
 
 <div class="panel">
@@ -438,21 +476,21 @@ langToggleBtn.addEventListener('click', () => {
 
 function render(ctx, sections, photoImg) {
   ctx.clearRect(0, 0, DIAGRAM, DIAGRAM);
-  ctx.fillStyle = BG_COLOR;
-  ctx.fillRect(0, 0, DIAGRAM, DIAGRAM);
+  // Забираємо замальовку фону (BG_COLOR), щоб PNG зберігався з прозорістю
 
   // Фото малюємо ПЕРШИМ, під сіткою — квадратний виріз без круглої маски.
   if (photoImg) {
     const cutoutX = OFFSET + CUTOUT_START * CELL;
     const cutoutY = cutoutX; // виріз симетричний по обох осях
     const cutoutSize = CUTOUT_LEN * CELL;
-    const scale = Math.max(cutoutSize / photoImg.width, cutoutSize / photoImg.height);
+    const baseScale = Math.max(cutoutSize / photoImg.width, cutoutSize / photoImg.height);
+    const scale = baseScale * photoScale;
     const w = photoImg.width * scale, h = photoImg.height * scale;
     ctx.save();
     ctx.beginPath();
     ctx.rect(cutoutX, cutoutY, cutoutSize, cutoutSize);
     ctx.clip();
-    ctx.drawImage(photoImg, cutoutX + cutoutSize / 2 - w / 2, cutoutY + cutoutSize / 2 - h / 2, w, h);
+    ctx.drawImage(photoImg, photoX - w / 2, photoY - h / 2, w, h);
     ctx.restore();
   }
 
@@ -503,8 +541,18 @@ const counter = document.getElementById('counter');
 const errorBox = document.getElementById('errorBox');
 const photoInput = document.getElementById('photoInput');
 const downloadBtn = document.getElementById('downloadBtn');
+const downloadSvgBtn = document.getElementById('downloadSvgBtn');
+
+const photoJoystickGroup = document.getElementById('photoJoystickGroup');
+const joyCenterBtn = document.getElementById('joyCenterBtn');
+const photoScaleSlider = document.getElementById('photoScaleSlider');
+const photoScaleLabel = document.getElementById('photoScaleLabel');
+
 let currentPhotoImg = null;
 let currentSections = null;
+let photoX = DIAGRAM / 2;
+let photoY = DIAGRAM / 2;
+let photoScale = 1;
 
 function refresh() {
   const text = msgInput.value.toUpperCase();
@@ -525,10 +573,15 @@ function refresh() {
 msgInput.addEventListener('input', refresh);
 photoInput.addEventListener('change', () => {
   const file = photoInput.files[0];
-  if (!file) { currentPhotoImg = null; refresh(); return; }
+  if (!file) { currentPhotoImg = null; photoJoystickGroup.style.display = 'none'; refresh(); return; }
   const img = new Image();
   img.onload = () => {
     currentPhotoImg = img;
+    photoX = DIAGRAM / 2; photoY = DIAGRAM / 2;
+    photoScale = 1;
+    photoScaleSlider.value = 100;
+    photoScaleLabel.textContent = '100%';
+    photoJoystickGroup.style.display = 'flex';
     refresh();
   };
   img.src = URL.createObjectURL(file);
@@ -536,9 +589,67 @@ photoInput.addEventListener('change', () => {
 clearPhotoBtn.addEventListener('click', () => {
   currentPhotoImg = null;
   photoInput.value = '';
+  photoScale = 1;
+  photoScaleSlider.value = 100;
+  photoScaleLabel.textContent = '100%';
+  photoJoystickGroup.style.display = 'none';
   refresh();
   log('Фото очищено.');
 });
+photoScaleSlider.addEventListener('input', () => {
+  photoScale = parseInt(photoScaleSlider.value, 10) / 100;
+  photoScaleLabel.textContent = photoScaleSlider.value + '%';
+  if (!currentPhotoImg) return;
+  render(ctx, currentSections, currentPhotoImg);
+});
+
+/* ================================================================
+   ДЖОЙСТИК ПОЗИЦІОНУВАННЯ
+   ================================================================ */
+const JOY_STEP = 4;
+const JOY_REPEAT_MS = 90;
+let joyInterval = null;
+
+function clampPhoto() {
+  const cx = DIAGRAM / 2, cy = DIAGRAM / 2;
+  const limit = DIAGRAM / 2;
+  const dx = photoX - cx, dy = photoY - cy;
+  if (Math.hypot(dx, dy) > limit) {
+    const angle = Math.atan2(dy, dx);
+    photoX = cx + Math.cos(angle) * limit;
+    photoY = cy + Math.sin(angle) * limit;
+  }
+}
+function nudgePhoto(dx, dy) {
+  if (!currentPhotoImg) return;
+  photoX += dx * JOY_STEP;
+  photoY += dy * JOY_STEP;
+  clampPhoto();
+  render(ctx, currentSections, currentPhotoImg);
+}
+function stopJoy() {
+  if (joyInterval) { clearInterval(joyInterval); joyInterval = null; }
+}
+function startJoy(dx, dy) {
+  stopJoy();
+  nudgePhoto(dx, dy);
+  joyInterval = setInterval(() => nudgePhoto(dx, dy), JOY_REPEAT_MS);
+}
+document.querySelectorAll('.joy-btn[data-dx]').forEach(btn => {
+  const dx = parseInt(btn.dataset.dx, 10);
+  const dy = parseInt(btn.dataset.dy, 10);
+  btn.addEventListener('pointerdown', (e) => { e.preventDefault(); startJoy(dx, dy); });
+  btn.addEventListener('pointerup', stopJoy);
+  btn.addEventListener('pointerleave', stopJoy);
+  btn.addEventListener('pointercancel', stopJoy);
+});
+joyCenterBtn.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  if (!currentPhotoImg) return;
+  photoX = DIAGRAM / 2; photoY = DIAGRAM / 2;
+  render(ctx, currentSections, currentPhotoImg);
+});
+window.addEventListener('pointerup', stopJoy);
 downloadBtn.addEventListener('click', () => {
   const link = document.createElement('a');
   const text = msgInput.value.toUpperCase().trim();
@@ -546,6 +657,53 @@ downloadBtn.addEventListener('click', () => {
   link.href = canvas.toDataURL('image/png');
   link.click();
   log('PNG завантажено.');
+});
+downloadSvgBtn.addEventListener('click', () => {
+  if (!currentSections) return;
+  
+  const fullBySide = [null, null, null, null];
+  for (let s = 0; s < SECTIONS; s++) {
+    const targetSide = (s + 3) % SECTIONS;
+    fullBySide[targetSide] = currentSections[s].concat([0]); 
+  }
+
+  let svgBeacons = `  <g id="Beacons" fill="${anchorsColor.value}">\n`;
+  for (let r = 0; r < GRID_SIZE; r++) {
+    for (let c = 0; c < GRID_SIZE; c++) {
+      if (isBeaconPixel(r, c)) {
+        const { x, y } = cellTopLeftPx(r, c);
+        svgBeacons += `    <rect x="${x + 1}" y="${y + 1}" width="${CELL - 2}" height="${CELL - 2}" />\n`;
+      }
+    }
+  }
+  svgBeacons += `  </g>\n`;
+
+  let svgData = `  <g id="DataBits" fill="${bitsColor.value}">\n`;
+  for (let r = 0; r < GRID_SIZE; r++) {
+    for (let c = 0; c < GRID_SIZE; c++) {
+      if (isCutout(r, c)) continue;
+      if (isQuietRing(r, c)) continue;
+      if (isBeaconArea(r, c)) continue;
+      const info = SIDE_INDEX_GRID[r][c];
+      if (info && fullBySide[info.side][info.idx] === 1) {
+        const { x, y } = cellTopLeftPx(r, c);
+        svgData += `    <rect x="${x + 1}" y="${y + 1}" width="${CELL - 2}" height="${CELL - 2}" />\n`;
+      }
+    }
+  }
+  svgData += `  </g>\n`;
+
+  const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${DIAGRAM} ${DIAGRAM}">\n${svgBeacons}${svgData}</svg>`;
+
+  const blob = new Blob([svgContent], {type: 'image/svg+xml'});
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  const text = msgInput.value.toUpperCase().trim();
+  link.download = (text ? text.slice(0, 20).replace(/[^A-ZА-ЯЇІЄҐ0-9]+/gi, '_') : 'square-code') + '.svg';
+  link.href = url;
+  link.click();
+  URL.revokeObjectURL(url);
+  log('SVG завантажено.');
 });
 
 function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
