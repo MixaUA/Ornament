@@ -1109,18 +1109,22 @@ function drawGuide(W, H) {
   const g = gc.getContext('2d');
   g.clearRect(0, 0, W, H);
   const cx = W / 2, cy = H / 2;
-  // Зменшуємо вікно прицілу у 2 рази: 0.38 / 2 = 0.19
-  const half = Math.min(W, H) * 0.19;
+  // Вікно прицілу збільшено на 20%: 0.19 * 1.2 = 0.228 ≈ 0.23
+  const radius = Math.min(W, H) * 0.23;
 
-  g.fillStyle = '#0b3d63';
+  g.fillStyle = '#154569';
   g.fillRect(0, 0, W, H);
   g.globalCompositeOperation = 'destination-out';
   g.fillStyle = '#000';
-  g.fillRect(cx - half, cy - half, half * 2, half * 2);
+  g.beginPath();
+  g.arc(cx, cy, radius, 0, Math.PI * 2);
+  g.fill();
   g.globalCompositeOperation = 'source-over';
   g.lineWidth = 2;
   g.strokeStyle = '#ffffff';
-  g.strokeRect(cx - half, cy - half, half * 2, half * 2);
+  g.beginPath();
+  g.arc(cx, cy, radius, 0, Math.PI * 2);
+  g.stroke();
 }
 function clearGuide() {
   const gc = document.getElementById('guideCanvas');
@@ -1194,7 +1198,7 @@ function uiLoop() {
   octx.clearRect(0, 0, W, H);
   
   const cx = W / 2, cy = H / 2;
-  const half = Math.min(W, H) * 0.19;
+  const radius = Math.min(W, H) * 0.23;
   
   const targetSignal = (latestDet && latestDet.pts && !locked) ? 1.0 : 0.0;
   signalLevel += (targetSignal - signalLevel) * 0.15; 
@@ -1202,12 +1206,27 @@ function uiLoop() {
   if (signalLevel > 0.01 && !locked) {
     octx.lineWidth = 2;
     octx.strokeStyle = '#ffffff';
+    octx.lineCap = 'round';
+    
+    const baseAngle = Math.PI / 4; // 45 градусів (правий нижній кут)
+    
     let p1 = Math.min(1, Math.max(0, signalLevel * 3));
-    if (p1 > 0) { let off = p1 * 7; octx.strokeRect(cx - half - off, cy - half - off, (half + off) * 2, (half + off) * 2); }
+    if (p1 > 0) { 
+      let spread = (Math.PI / 16) * p1; 
+      octx.beginPath(); octx.arc(cx, cy, radius + 8, baseAngle - spread, baseAngle + spread); octx.stroke(); 
+    }
+    
     let p2 = Math.min(1, Math.max(0, (signalLevel - 0.33) * 3));
-    if (p2 > 0) { let off = 7 + p2 * 7; octx.strokeRect(cx - half - off, cy - half - off, (half + off) * 2, (half + off) * 2); }
+    if (p2 > 0) { 
+      let spread = (Math.PI / 10) * p2; 
+      octx.beginPath(); octx.arc(cx, cy, radius + 16, baseAngle - spread, baseAngle + spread); octx.stroke(); 
+    }
+    
     let p3 = Math.min(1, Math.max(0, (signalLevel - 0.66) * 3));
-    if (p3 > 0) { let off = 14 + p3 * 7; octx.strokeRect(cx - half - off, cy - half - off, (half + off) * 2, (half + off) * 2); }
+    if (p3 > 0) { 
+      let spread = (Math.PI / 7) * p3; 
+      octx.beginPath(); octx.arc(cx, cy, radius + 24, baseAngle - spread, baseAngle + spread); octx.stroke(); 
+    }
   }
   
   const debugCb = document.getElementById('debugBeaconsCb');
