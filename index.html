@@ -283,11 +283,24 @@ function isCutout(r, c) {
 const SIDE_NAMES = ['top', 'right', 'bottom', 'left'];
 function buildSideCoords() {
   const top = [], right = [], bottom = [], left = [];
-  for (let c = CUTOUT_START; c < CUTOUT_START + CUTOUT_LEN; c++) for (let r = 0; r < BEACON_SIZE; r++) top.push({ r, c });
-  for (let r = CUTOUT_START; r < CUTOUT_START + CUTOUT_LEN; r++) for (let c = GRID_SIZE - BEACON_SIZE; c < GRID_SIZE; c++) right.push({ r, c });
-  for (let c = CUTOUT_START; c < CUTOUT_START + CUTOUT_LEN; c++) for (let r = GRID_SIZE - BEACON_SIZE; r < GRID_SIZE; r++) bottom.push({ r, c });
-  for (let r = CUTOUT_START; r < CUTOUT_START + CUTOUT_LEN; r++) for (let c = 0; c < BEACON_SIZE; c++) left.push({ r, c });
-  return [top, right, bottom, left]; // по 55 клітин кожна
+  
+  // top: рухаємось зліва направо вздовж краю, і згори донизу вглиб
+  for (let c = CUTOUT_START; c < CUTOUT_START + CUTOUT_LEN; c++) 
+    for (let r = 0; r < BEACON_SIZE; r++) top.push({ r, c });
+
+  // right: рухаємось згори донизу вздовж краю, і справа наліво вглиб
+  for (let r = CUTOUT_START; r < CUTOUT_START + CUTOUT_LEN; r++) 
+    for (let c = GRID_SIZE - 1; c >= GRID_SIZE - BEACON_SIZE; c--) right.push({ r, c });
+
+  // bottom: рухаємось справа наліво вздовж краю, і знизу вгору вглиб
+  for (let c = CUTOUT_START + CUTOUT_LEN - 1; c >= CUTOUT_START; c--) 
+    for (let r = GRID_SIZE - 1; r >= GRID_SIZE - BEACON_SIZE; r--) bottom.push({ r, c });
+
+  // left: рухаємось знизу вгору вздовж краю, і зліва направо вглиб
+  for (let r = CUTOUT_START + CUTOUT_LEN - 1; r >= CUTOUT_START; r--) 
+    for (let c = 0; c < BEACON_SIZE; c++) left.push({ r, c });
+    
+  return [top, right, bottom, left]; 
 }
 const SIDE_CELL_COORDS = buildSideCoords();
 
