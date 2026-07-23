@@ -1227,6 +1227,40 @@ let latestStatusText = '';
 let uiAnimFrame = null;
 let signalLevel = 0;
 
+// Геометрія прицілу — портретний прямокутник зі скругленими кутами.
+// Винесено в окрему функцію, щоб і сама рамка (drawGuide), і імпульсна
+// анімація сигналу (uiLoop) використовували однакові цифри — тоді дуга
+// імпульсу завжди точно збігається з кривизною скругленого кута рамки.
+const GUIDE_WIDTH_RATIO = 0.46;     // ширина прицілу відносно min(W,H) — та сама площа, що й був діаметр кола
+const GUIDE_ASPECT_RATIO = 1.3;     // портрет: висота = ширина * 1.3
+const GUIDE_CORNER_RADIUS_RATIO = 0.22; // радіус скруглення відносно ширини прицілу
+
+function getGuideGeometry(W, H) {
+  const cx = W / 2, cy = H / 2;
+  const guideW = Math.min(W, H) * GUIDE_WIDTH_RATIO;
+  let guideH = guideW * GUIDE_ASPECT_RATIO;
+  const maxH = H * 0.94; // невеликий відступ від країв кадру
+  if (guideH > maxH) guideH = maxH;
+  const halfW = guideW / 2, halfH = guideH / 2;
+  const r = Math.min(guideW, guideH) * GUIDE_CORNER_RADIUS_RATIO;
+  return { cx, cy, halfW, halfH, r };
+}
+
+function roundedRectPath(g, cx, cy, halfW, halfH, r) {
+  const x0 = cx - halfW, y0 = cy - halfH, x1 = cx + halfW, y1 = cy + halfH;
+  g.beginPath();
+  g.moveTo(x0 + r, y0);
+  g.lineTo(x1 - r, y0);
+  g.arcTo(x1, y0, x1, y0 + r, r);
+  g.lineTo(x1, y1 - r);
+  g.arcTo(x1, y1, x1 - r, y1, r);
+  g.lineTo(x0 + r, y1);
+  g.arcTo(x0, y1, x0, y1 - r, r);
+  g.lineTo(x0, y0 + r);
+  g.arcTo(x0, y0, x0 + r, y0, r);
+  g.closePath();
+}
+
 function drawGuide(W, H) {
   const gc = document.getElementById('guideCanvas');
   const dpr = window.devicePixelRatio || 1;
@@ -1235,22 +1269,18 @@ function drawGuide(W, H) {
   const g = gc.getContext('2d');
   g.scale(dpr, dpr);
   g.clearRect(0, 0, W, H);
-  const cx = W / 2, cy = H / 2;
-  // Вікно прицілу збільшено на 20%: 0.19 * 1.2 = 0.228 ≈ 0.23
-  const radius = Math.min(W, H) * 0.23;
+  const { cx, cy, halfW, halfH, r } = getGuideGeometry(W, H);
 
   g.fillStyle = '#154569';
   g.fillRect(0, 0, W, H);
   g.globalCompositeOperation = 'destination-out';
   g.fillStyle = '#000';
-  g.beginPath();
-  g.arc(cx, cy, radius, 0, Math.PI * 2);
+  roundedRectPath(g, cx, cy, halfW, halfH, r);
   g.fill();
   g.globalCompositeOperation = 'source-over';
   g.lineWidth = 2;
   g.strokeStyle = '#ffffff';
-  g.beginPath();
-  g.arc(cx, cy, radius, 0, Math.PI * 2);
+  roundedRectPath(g, cx, cy, halfW, halfH, r);
   g.stroke();
 }
 function clearGuide() {
@@ -1327,8 +1357,13 @@ function uiLoop() {
   octx.scale(dpr, dpr);
   octx.clearRect(0, 0, W, H);
   
-  const cx = W / 2, cy = H / 2;
-  const radius = Math.min(W, H) * 0.23;
+  const { halfW, halfH, r } = getGuideGeometry(W, H);
+  // Центр дуги скруглення правого-нижнього кута прицілу — та сама точка,
+  // якою намальована сама крива в roundedRectPath, тож дуги імпульсу
+  // ідеально продовжують кривизну кута рамки.
+  const cornerCx = W / 2 + halfW - r;
+  const cornerCy = H / 2 + halfH - r;
+  const radius = r;
   
   const targetSignal = (latestDet && latestDet.pts && !locked) ? 1.0 : 0.0;
   signalLevel += (targetSignal - signalLevel) * 0.15; 
@@ -1338,24 +1373,24 @@ function uiLoop() {
     octx.strokeStyle = '#ffffff';
     octx.lineCap = 'round';
     
-    const baseAngle = Math.PI / 4; // 45 градусів (правий нижній кут)
+    const baseAngle = Math.PI / 4; // 45 градусів — середина дуги скруглення правого-нижнього кута
     
     let p1 = Math.min(1, Math.max(0, signalLevel * 3));
     if (p1 > 0) { 
       let spread = (Math.PI / 16) * p1; 
-      octx.beginPath(); octx.arc(cx, cy, radius + 8, baseAngle - spread, baseAngle + spread); octx.stroke(); 
+      octx.beginPath(); octx.arc(cornerCx, cornerCy, radius + 8, baseAngle - spread, baseAngle + spread); octx.stroke(); 
     }
     
     let p2 = Math.min(1, Math.max(0, (signalLevel - 0.33) * 3));
     if (p2 > 0) { 
       let spread = (Math.PI / 10) * p2; 
-      octx.beginPath(); octx.arc(cx, cy, radius + 16, baseAngle - spread, baseAngle + spread); octx.stroke(); 
+      octx.beginPath(); octx.arc(cornerCx, cornerCy, radius + 16, baseAngle - spread, baseAngle + spread); octx.stroke(); 
     }
     
     let p3 = Math.min(1, Math.max(0, (signalLevel - 0.66) * 3));
     if (p3 > 0) { 
       let spread = (Math.PI / 7) * p3; 
-      octx.beginPath(); octx.arc(cx, cy, radius + 24, baseAngle - spread, baseAngle + spread); octx.stroke(); 
+      octx.beginPath(); octx.arc(cornerCx, cornerCy, radius + 24, baseAngle - spread, baseAngle + spread); octx.stroke(); 
     }
   }
   
