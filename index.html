@@ -162,7 +162,7 @@ textarea { width: 100%; height: 180px; font-family: monospace; font-size: 11px; 
 <body>
 
 <h1>Квадрат-Код</h1>
-<div class="subtitle">23×23 сітка · 4 кутові маяки · OpenCV вкладені контури</div>
+<div class="subtitle">24×24 сітка · 4 кутові маяки · OpenCV вкладені контури</div>
 
 <div class="panel">
   <h2>Енкодер</h2>
@@ -250,7 +250,7 @@ textarea { width: 100%; height: 180px; font-family: monospace; font-size: 11px; 
   <div class="error" id="errorBox"></div>
   <div class="capacity-note" id="capacityNote"></div>
 
-  <canvas id="previewCanvas" width="540" height="540"></canvas>
+  <canvas id="previewCanvas" width="560" height="560"></canvas>
 
   <div class="btn-row" style="margin-top: 10px;">
     <button id="downloadBtn">Завантажити PNG</button>
@@ -306,23 +306,23 @@ textarea { width: 100%; height: 180px; font-family: monospace; font-size: 11px; 
 
 <script>
 /* ================================================================
-   ГЕОМЕТРІЯ КВАДРАТА — 23×23 сітка, 4 кутові маяки 5×5,
+   ГЕОМЕТРІЯ КВАДРАТА — 24×24 сітка, 4 кутові маяки 5×5,
    "тиха" рамка навколо вирізу 11×11, 4 сторони даних по 55 клітин.
    Портовано з "Орнамент квадрат_2.html", узгоджено з архітектурою
    диска (4 фізичні секції: 3 даних + 1 чексум, ротаційний пошук СТАРТу).
    ================================================================ */
-const GRID_SIZE = 23;
+const GRID_SIZE = 24;
 const CELL = 20;
 const MARGIN_CELLS = 2;               // "тиха зона" з полів навколо коду — для стійкості розпізнавання
 const OFFSET = MARGIN_CELLS * CELL;
-const DIAGRAM = (GRID_SIZE + MARGIN_CELLS * 2) * CELL; // 540
+const DIAGRAM = (GRID_SIZE + MARGIN_CELLS * 2) * CELL; // 560
 
 const BEACON_SIZE = 5;                // кутові маяки 5×5
-const CUTOUT_START = 6, CUTOUT_LEN = 11; // виріз під фото 11×11 (клітини 6..16)
-const QUIET_START = 5, QUIET_END = 17;   // рамка навколо вирізу
+const CUTOUT_START = 6, CUTOUT_LEN = 12; // виріз під фото 12×12 (клітини 6..17)
+const QUIET_START = 5, QUIET_END = 18;   // рамка навколо вирізу
 
 const SECTIONS = 4;                   // фізичних сторін: верх/право/низ/ліво
-const PHYSICAL_BITS_PER_SIDE = 55;    // 11 × 5 клітин на сторону
+const PHYSICAL_BITS_PER_SIDE = CUTOUT_LEN * BEACON_SIZE; // 12 × 5 = 60 клітин на сторону
 const BG_COLOR = '#ffffff';
 
 function cellTopLeftPx(r, c) { return { x: OFFSET + c * CELL, y: OFFSET + r * CELL }; }
@@ -461,7 +461,13 @@ const MESSAGE_CHARS_FOR_UI = { uk: CYRILLIC_LETTERS.filter(Boolean), en: LATIN_L
 // квадрата — 55 клітин фізично на сторону, символьна місткість рахується
 // від 54, щоб ACTIVE*3 ділилось на 6 без залишку; резервна клітина
 // завжди 0 і декодером ігнорується).
-const ACTIVE_BITS_PER_SECTION = PHYSICAL_BITS_PER_SIDE - 1; // 54
+// Резервних біт має бути рівно стільки, щоб ACTIVE_BITS_PER_SECTION лишався
+// парним — тоді ACTIVE*3 завжди ділиться на 6 без залишку. При вирізі 11×11
+// PHYSICAL_BITS_PER_SIDE=55 (непарне) — потрібен 1 резервний біт (54 активних,
+// як було раніше). При вирізі 12×12 PHYSICAL_BITS_PER_SIDE=60 (парне) —
+// резерв не потрібен, усі 60 біт стають активними.
+const RESERVE_BITS_PER_SECTION = PHYSICAL_BITS_PER_SIDE % 2;
+const ACTIVE_BITS_PER_SECTION = PHYSICAL_BITS_PER_SIDE - RESERVE_BITS_PER_SECTION;
 const DATA_SYMBOL_SLOTS = Math.floor((ACTIVE_BITS_PER_SECTION * 3) / BITS_PER_SYMBOL);
 const SYMBOLS_PER_SECTION = DATA_SYMBOL_SLOTS / 3;
 const MAX_MESSAGE_LEN = DATA_SYMBOL_SLOTS - 2;
@@ -617,7 +623,7 @@ function render(ctx, sections, photoImg) {
   const fullBySide = [null, null, null, null];
   for (let s = 0; s < SECTIONS; s++) {
     const targetSide = (s + 3) % SECTIONS;
-    fullBySide[targetSide] = sections[s].concat([0]); // 54 активних + 1 резервний біт
+    fullBySide[targetSide] = sections[s].concat(new Array(RESERVE_BITS_PER_SECTION).fill(0)); // активні біти + резерв (якщо є)
   }
 
   for (let r = 0; r < GRID_SIZE; r++) {
@@ -780,7 +786,7 @@ downloadSvgBtn.addEventListener('click', () => {
   const fullBySide = [null, null, null, null];
   for (let s = 0; s < SECTIONS; s++) {
     const targetSide = (s + 3) % SECTIONS;
-    fullBySide[targetSide] = currentSections[s].concat([0]); 
+    fullBySide[targetSide] = currentSections[s].concat(new Array(RESERVE_BITS_PER_SECTION).fill(0));
   }
 
   const s = CELL * bitScaleValue;
